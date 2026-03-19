@@ -17,7 +17,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install
-        run: pip install -e .
+        run: pip install setuptools wheel && pip install -e .
 
       - name: Import check
         run: |
