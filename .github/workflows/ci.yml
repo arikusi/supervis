@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Import check
+        run: |
+          python -c "
+          from supervisor.display import CYAN
+          from supervisor.prompts import SYSTEM_PROMPT
+          from supervisor.tools import TOOLS
+          from supervisor.claude import run_claude
+          from supervisor.memory import summarize_if_needed
+          from supervisor.config import _read_saved
+          from supervisor.cost import summary, record
+          from supervisor.deepseek import get_client
+          from supervisor.chat import chat_loop
+          print('All imports OK')
+          print(f'Tools: {[t[\"function\"][\"name\"] for t in TOOLS]}')
+          "
