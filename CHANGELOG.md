@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-03-26
+
+### Fixed
+
+* **Double Ctrl+C exit broken.** First Ctrl+C set `_ctrl_c_idle = True`, but the next loop iteration immediately reset it to `False` before the second Ctrl+C could be read. Moved the reset so it only clears when the user types actual input.
+* **Interrupt watcher race condition.** `_watch_interrupt` blocked indefinitely on `input_queue.get()` even after the agent task finished, preventing clean cancellation. Now polls with a 300ms timeout so it notices when the agent is done.
+* **Unused `interrupts` variable.** Drain queue filtered interrupts into a list that was never used. Removed the dead variable, simplified to a single filter.
+
 ## 0.2.0 — 2026-03-26
 
 Supervisor overhaul. DeepSeek now thinks before acting, recovers from errors, and respects project-level instructions.

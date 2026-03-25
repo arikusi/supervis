@@ -165,9 +165,9 @@ async def chat_loop(project_dir: str) -> None:
             # ── Drain queue (typed while agent ran) ──────────────────────────
             queued = _drain_queue(input_queue)
 
-            # Filter interrupts that came in during agent run
-            interrupts = [m for m in queued if m in (_ESC, _CTRL_C)]
-            queued     = [m for m in queued if m not in (_ESC, _CTRL_C)]
+            # Filter interrupts — if any came in during agent run, discard them
+            # (the agent was already interrupted by _watch_interrupt)
+            queued = [m for m in queued if m not in (_ESC, _CTRL_C)]
 
             if queued:
                 for msg in queued:
@@ -195,7 +195,6 @@ async def chat_loop(project_dir: str) -> None:
                     continue
 
             # ── Normal prompt ─────────────────────────────────────────────────
-            _ctrl_c_idle = False
             interrupt_event.clear()
 
             print(f"{GREEN}{BOLD}You:{R} ", end="", flush=True)
@@ -236,20 +235,28 @@ async def chat_loop(project_dir: str) -> None:
                 run_agent_loop(messages, interrupt_event)
             )
 
-            # While agent runs, watch for ESC / Ctrl+C from queue
+            # While agent runs, poll queue for ESC / Ctrl+C
+            # Uses timeout so watcher doesn't stay stuck in .get() after agent ends
             async def _watch_interrupt() -> None:
-                while not agent_task.done():
-                    item = await input_queue.get()
-                    if item in (_ESC, _CTRL_C):
-                        interrupt_event.set()
-                        proc = get_proc()
-                        if proc and proc.returncode is None:
-                            proc.terminate()
-                        print(f"\n{YELLOW}[Interrupted]{R}", flush=True)
-                        return
-                    else:
-                        # Re-queue non-interrupt messages
-                        await input_queue.put(item)
+                try:
+                    while not agent_task.done():
+                        try:
+                            item = await asyncio.wait_for(
+                                input_queue.get(), timeout=0.3,
+                            )
+                        except asyncio.TimeoutError:
+                            continue
+                        if item in (_ESC, _CTRL_C):
+                            interrupt_event.set()
+                            proc = get_proc()
+                            if proc and proc.returncode is None:
+                                proc.terminate()
+                            print(f"\n{YELLOW}[Interrupted]{R}", flush=True)
+                            return
+                        else:
+                            await input_queue.put(item)
+                except asyncio.CancelledError:
+                    pass
 
             watcher = asyncio.create_task(_watch_interrupt())
             try:
