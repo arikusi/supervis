@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2 — 2026-03-26
+
+### Fixed
+
+* **400 error after interrupt.** When the user interrupted during tool execution, the assistant message with `tool_calls` was already in the history but tool results were missing. Next API call would fail with "insufficient tool messages following tool_calls". Now injects `(interrupted by user)` placeholder results for every unanswered tool_call_id.
+* **Interrupt between tool calls.** If DeepSeek requested multiple tool calls in one turn, interrupt was only checked before the batch, not between individual calls. Now checks between each tool call and fills placeholders for the rest.
+
+### Changed
+
+* **Prompt discourages excessive file reading.** DeepSeek was reading files one by one (10+ read_file calls in a row) instead of telling Claude Code to explore. Prompt now explicitly limits exploration tools to 1-2 quick checks and pushes everything else to run_claude.
+
 ## 0.2.1 — 2026-03-26
 
 ### Fixed

@@ -144,11 +144,23 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
 
         # Check for interrupt before executing tools
         if interrupt_event and interrupt_event.is_set():
+            # Must still provide tool results for every tool_call_id,
+            # otherwise the next API call will 400
+            for tc in tool_calls:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": "(interrupted by user)",
+                })
             break
 
         # Execute tools, append results, loop
         print()
+        executed_ids: set[str] = set()
         for tc in tool_calls:
+            # Check interrupt between tool calls too
+            if interrupt_event and interrupt_event.is_set():
+                break
             try:
                 args = json.loads(tc["arguments"]) if tc["arguments"] else {}
             except json.JSONDecodeError:
@@ -160,5 +172,15 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
                 "tool_call_id": tc["id"],
                 "content": str(result),
             })
+            executed_ids.add(tc["id"])
+
+        # Fill in placeholder results for any tool calls skipped by interrupt
+        for tc in tool_calls:
+            if tc["id"] not in executed_ids:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": "(interrupted by user)",
+                })
 
     return messages
