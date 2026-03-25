@@ -3,19 +3,34 @@
 from openai import AsyncOpenAI
 
 
+def _clean_for_summarize(messages: list) -> list:
+    """Strip reasoning_content from messages before summarizing (saves tokens, not needed for summary)."""
+    cleaned = []
+    for m in messages:
+        if "reasoning_content" in m:
+            c = dict(m)
+            del c["reasoning_content"]
+            cleaned.append(c)
+        else:
+            cleaned.append(m)
+    return cleaned
+
+
 async def summarize_if_needed(
     messages: list,
     client: AsyncOpenAI,
-    threshold: int = 20,
+    threshold: int = 40,
 ) -> list:
     """When history exceeds threshold, summarize older messages to save tokens."""
     user_msgs = [m for m in messages if m["role"] != "system"]
     if len(user_msgs) <= threshold:
         return messages
 
-    to_summarize = messages[1:-8]
+    to_summarize = messages[1:-12]
     if not to_summarize:
         return messages
+
+    to_summarize = _clean_for_summarize(to_summarize)
 
     print("\n\033[2m[Summarizing conversation history...]\033[0m", flush=True)
     try:
@@ -41,7 +56,7 @@ async def summarize_if_needed(
         return [
             messages[0],
             {"role": "assistant", "content": f"[Session summary: {summary}]"},
-            *messages[-8:],
+            *messages[-12:],
         ]
     except Exception:
         return messages

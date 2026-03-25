@@ -14,6 +14,7 @@ except ImportError:
 from .deepseek import run_agent_loop
 from .memory import summarize_if_needed
 from .prompts import SYSTEM_PROMPT
+from .config import load_project_instructions
 from .display import GREEN, BOLD, DIM, YELLOW, CYAN, R, header
 from .claude import get_proc, reset_session
 from .deepseek import get_client
@@ -141,7 +142,14 @@ async def chat_loop(project_dir: str) -> None:
     print(f"{DIM}Project: {project_dir}{R}")
     print(f"{DIM}ESC / Ctrl+C = interrupt  ·  Type anytime = queue  ·  exit = quit{R}\n")
 
-    messages  = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Build system prompt with project instructions if .supervis/SUPERVIS.md exists
+    system_content = SYSTEM_PROMPT
+    project_instructions = load_project_instructions(project_dir)
+    if project_instructions:
+        system_content += f"\n\n## Project Instructions\n{project_instructions}"
+        print(f"{DIM}Loaded .supervis/SUPERVIS.md{R}")
+
+    messages  = [{"role": "system", "content": system_content}]
     client    = get_client()
 
     input_queue:     asyncio.Queue[str] = asyncio.Queue()

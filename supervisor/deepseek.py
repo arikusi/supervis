@@ -5,10 +5,13 @@ import json
 from openai import AsyncOpenAI
 from .config import get_api_key
 from .tools import TOOLS, execute_tool
-from .display import CYAN, BOLD, DIM, R
+from .display import CYAN, YELLOW, BOLD, DIM, R
 from . import cost
 
 _client: AsyncOpenAI | None = None
+
+_RETRYABLE_CODES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
 
 
 def get_client() -> AsyncOpenAI:
@@ -18,12 +21,32 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-async def stream_turn(messages: list) -> tuple[str, list]:
+async def stream_turn(messages: list) -> tuple[str, list, str]:
     """
     Send messages to DeepSeek, stream response.
-    Returns (content, tool_calls).
+    Returns (content, tool_calls, reasoning_content).
+    Retries on transient errors (429, 5xx) with exponential backoff.
     """
     client = get_client()
+
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await _stream_turn_inner(client, messages)
+        except Exception as e:
+            status = getattr(e, "status_code", None) or getattr(e, "code", None)
+            if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
+                wait = 2 ** (attempt + 1)
+                print(f"\n{YELLOW}{DIM}[API error {status}, retrying in {wait}s...]{R}", flush=True)
+                await asyncio.sleep(wait)
+                continue
+            raise
+
+    # Unreachable but satisfies type checker
+    return "", [], ""
+
+
+async def _stream_turn_inner(client: AsyncOpenAI, messages: list) -> tuple[str, list, str]:
+    """Single attempt at streaming a DeepSeek turn."""
 
     print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
 
@@ -34,11 +57,13 @@ async def stream_turn(messages: list) -> tuple[str, list]:
         tool_choice="auto",
         stream=True,
         stream_options={"include_usage": True},
-        temperature=0.2,
+        extra_body={"thinking": {"type": "enabled"}},
     )
 
     content = ""
+    reasoning = ""
     tc_raw: dict[int, dict] = {}
+    thinking_shown = False
 
     async for chunk in response:
         # Track usage from final chunk
@@ -52,6 +77,14 @@ async def stream_turn(messages: list) -> tuple[str, list]:
         if not choice:
             continue
         delta = choice.delta
+
+        # Capture reasoning_content (thinking tokens)
+        rc = getattr(delta, "reasoning_content", None)
+        if rc:
+            if not thinking_shown:
+                print(f"{DIM}thinking...{R} ", end="", flush=True)
+                thinking_shown = True
+            reasoning += rc
 
         if delta.content:
             print(f"{CYAN}{delta.content}{R}", end="", flush=True)
@@ -74,35 +107,36 @@ async def stream_turn(messages: list) -> tuple[str, list]:
         print()
 
     tool_calls = list(tc_raw.values())
-    return content, tool_calls
+    return content, tool_calls, reasoning
 
 
 async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None = None) -> list:
     """
     Agentic loop: keep calling DeepSeek + executing tools until
-    DeepSeek stops making tool calls or produces a user-facing response.
+    DeepSeek stops making tool calls.
     Returns updated messages list.
     """
     while True:
-        content, tool_calls = await stream_turn(messages)
-
-        # DeepSeek spoke AND wants to call tools → return to user first
-        if content and tool_calls:
-            messages.append({"role": "assistant", "content": content})
+        try:
+            content, tool_calls, reasoning = await stream_turn(messages)
+        except Exception as e:
+            print(f"\n{YELLOW}[DeepSeek error: {e}]{R}", flush=True)
             break
 
-        messages.append({
-            "role": "assistant",
-            "content": content or None,
-            "tool_calls": [
+        # Build assistant message with reasoning_content for thinking mode
+        msg: dict = {"role": "assistant", "content": content or None}
+        if reasoning:
+            msg["reasoning_content"] = reasoning
+        if tool_calls:
+            msg["tool_calls"] = [
                 {
                     "id": tc["id"],
                     "type": "function",
                     "function": {"name": tc["name"], "arguments": tc["arguments"]},
                 }
                 for tc in tool_calls
-            ] if tool_calls else None,
-        })
+            ]
+        messages.append(msg)
 
         # No tool calls → DeepSeek is done, return to user
         if not tool_calls:

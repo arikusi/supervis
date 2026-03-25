@@ -1,14 +1,15 @@
 # supervis
 
-DeepSeek reads your codebase and drives Claude Code so you don't have to babysit every prompt.
+DeepSeek thinks, plans, and drives Claude Code through your project so you don't babysit every prompt. You give the goal, supervis manages the execution.
 
 ## What it does
 
-- Explores the project before writing a single line
-- Sends precise, context-aware prompts to Claude Code
-- Reviews the diff, fixes mistakes, continues on its own
-- Only asks you for real decisions (architecture, trade-offs)
-- Queues your messages while it works, type anytime, nothing is lost
+* Breaks your request into steps and sends each one to Claude Code
+* Keeps going until the full task is done, not just one step
+* Uses DeepSeek V3.2 with thinking mode for better planning and reasoning
+* Only asks you when there's a real decision to make (architecture, trade-offs)
+* Queues your messages while it works — type anytime, nothing is lost
+* Reads `.supervis/SUPERVIS.md` for project-specific instructions
 
 ## Install
 
@@ -28,13 +29,28 @@ supervis
 ```
 You: add JWT authentication
 
-→ DeepSeek reads the codebase
-→ Claude Code writes the implementation
-→ DeepSeek checks the diff, corrects if needed
-→ "Done. Added verify_token() in auth/tokens.py, middleware in auth/middleware.py."
+→ DeepSeek plans the approach (thinking mode)
+→ Claude Code writes auth/tokens.py, auth/middleware.py
+→ DeepSeek sends the next step, Claude Code continues
+→ "Done. JWT auth added with verify_token() and require_auth() middleware."
 
 You: actually make it session-based    ← typed while agent was working, queued automatically
 ```
+
+## Project Instructions
+
+Create `.supervis/SUPERVIS.md` in your project root to give DeepSeek context about your project:
+
+```bash
+mkdir .supervis
+cat > .supervis/SUPERVIS.md << 'EOF'
+Tech stack: Next.js 15, TypeScript, PostgreSQL, Tailwind CSS.
+Follow the plan in PLAN.md.
+Always run `npm run build` after making changes.
+EOF
+```
+
+These instructions are injected into DeepSeek's system prompt on startup.
 
 ## Controls
 
@@ -73,14 +89,20 @@ export DEEPSEEK_API_KEY=sk-...    # bash/zsh
 ## How it works
 
 ```
-You → DeepSeek (reads files, plans) → Claude Code (writes code) → DeepSeek (verifies) → You
+You → DeepSeek (thinks, plans) → Claude Code (writes code) → DeepSeek (next step) → ... → You
 ```
 
-DeepSeek uses [DeepSeek V3.2](https://platform.deepseek.com) via API. Claude Code runs locally with `bypassPermissions` so it edits files without asking for each one.
+DeepSeek uses [DeepSeek V3.2](https://platform.deepseek.com) with thinking mode via API. Claude Code runs locally with `bypassPermissions` so it edits files without asking for each one.
+
+DeepSeek has access to these tools:
+* **run_claude** — send a task to Claude Code
+* **read_file, list_files, search_code** — understand the codebase before delegating
+* **run_shell** — quick shell commands (git log, build checks)
+* **get_git_status** — see what changed
 
 ## Cost
 
-Shown after each response:
+Shown after each DeepSeek response:
 
 ```
 [in 12.3k  4.1k cached · out 0.8k · $0.0031]

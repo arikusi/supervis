@@ -1,0 +1,118 @@
+# supervis — full documentation
+
+DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 0.2.0.
+
+## What it is
+
+supervis is a CLI tool that sits between you and Claude Code. Instead of writing prompts for Claude Code yourself, you tell supervis what you want and DeepSeek V3.2 (with thinking mode) manages the entire execution: planning steps, sending tasks to Claude Code, verifying results, and continuing until the job is done.
+
+## Install
+
+```bash
+pipx install supervis
+```
+
+Requirements:
+* Python 3.10+
+* Claude Code CLI installed and authenticated (https://docs.anthropic.com/en/docs/claude-code)
+* DeepSeek API key (https://platform.deepseek.com/api-keys)
+
+## Usage
+
+```bash
+cd myproject
+supervis
+```
+
+Type your request. DeepSeek plans the approach using thinking mode, then sends steps to Claude Code one by one. You can type while the agent works — messages are queued and processed when the current step finishes.
+
+## Architecture
+
+```
+User input
+  → DeepSeek V3.2 (thinking mode, plans next step)
+    → Claude Code (writes/edits/tests code via subprocess)
+      → Result returned to DeepSeek
+        → DeepSeek sends next step or reports completion
+          → Back to user
+```
+
+DeepSeek has these tools:
+* run_claude: Send a task to Claude Code (main tool)
+* read_file: Read a file for context before delegating
+* list_files: Glob pattern matching for project structure
+* search_code: Grep-style code search
+* run_shell: Quick shell commands (git log, npm run build, ls)
+* get_git_status: Git status + recent commits
+
+Claude Code runs with `--permission-mode bypassPermissions` so it can edit files without per-file confirmation. Sessions are reused via `--continue` for context continuity.
+
+## Project instructions (.supervis/)
+
+Create `.supervis/SUPERVIS.md` in your project root:
+
+```markdown
+Tech stack: Next.js 15, TypeScript, PostgreSQL.
+Follow the plan in PLAN.md.
+Run `npm run build` after changes.
+```
+
+Contents are injected into DeepSeek's system prompt on startup. Use this for project constraints, tech stack notes, coding conventions, or pointers to plan documents.
+
+## Configuration
+
+API key resolution order:
+1. `DEEPSEEK_API_KEY` environment variable
+2. `~/.config/supervis/config` file
+3. Interactive prompt on first run
+
+The config file stores `DEEPSEEK_API_KEY=sk-...` with 600 permissions.
+
+## Controls
+
+* ESC or Ctrl+C: Interrupt the running agent, return to prompt
+* Ctrl+C twice at idle: Exit
+* `exit`, `quit`, `q`: Exit
+
+## Commands
+
+* `/reset`: Reset Claude Code session and conversation history
+* `/help`: Show available commands
+
+## Cost tracking
+
+After each DeepSeek response:
+```
+[in 12.3k  4.1k cached · out 0.8k · $0.0031]
+```
+
+DeepSeek V3.2 pricing (March 2026):
+* Input: $0.28/1M tokens
+* Input (cache hit): $0.028/1M tokens
+* Output: $0.42/1M tokens
+
+## Error handling
+
+* DeepSeek API errors (429 rate limit, 5xx server errors) are retried up to 3 times with exponential backoff (2s, 4s, 8s). After exhausting retries, control returns to the prompt without crashing the session.
+* Claude Code output is truncated to 4000 characters before sending back to DeepSeek to prevent context overflow. Full output is always displayed in the terminal.
+* Conversation history is automatically summarized when it exceeds 40 messages, keeping the system prompt + summary + last 12 messages.
+
+## Module structure
+
+```
+supervisor/
+  main.py       — CLI entry point
+  chat.py       — Main loop, input queue, interrupt handling
+  deepseek.py   — DeepSeek API client, streaming, agent loop, retry
+  claude.py     — Claude Code subprocess, stream-json parsing
+  tools.py      — Tool definitions and implementations
+  prompts.py    — System prompt
+  memory.py     — Conversation summarization
+  config.py     — API key + project instructions loading
+  cost.py       — Token and cost tracking
+  display.py    — Terminal colors and formatting
+```
+
+## License
+
+MIT

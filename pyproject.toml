@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "supervis"
-version = "0.1.0"
+version = "0.2.0"
 description = "DeepSeek supervisor for Claude Code"
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,8 +21,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourname/supervis"
-Issues = "https://github.com/yourname/supervis/issues"
+Homepage = "https://github.com/arikusi/supervis"
+Issues = "https://github.com/arikusi/supervis/issues"
 
 [project.scripts]
 supervis = "supervisor.main:main"

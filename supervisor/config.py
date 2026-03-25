@@ -23,6 +23,15 @@ def _save(key: str) -> None:
     _CONFIG_FILE.chmod(0o600)  # owner read/write only
 
 
+def load_project_instructions(project_dir: str) -> str | None:
+    """Load .supervis/SUPERVIS.md if it exists in the project directory."""
+    path = Path(project_dir) / ".supervis" / "SUPERVIS.md"
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except (FileNotFoundError, PermissionError):
+        return None
+
+
 def get_api_key() -> str:
     # 1. Environment variable (takes precedence)
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
