@@ -21,34 +21,14 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-async def stream_turn(messages: list) -> tuple[str, list, str]:
+async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) -> tuple[str, list, str]:
     """
-    Send messages to DeepSeek, stream response.
+    Single DeepSeek API call with streaming.
     Returns (content, tool_calls, reasoning_content).
-    Retries on transient errors (429, 5xx) with exponential backoff.
+    quiet=True suppresses the 'DeepSeek:' header (used for intermediate loop turns).
     """
-    client = get_client()
-
-    for attempt in range(_MAX_RETRIES):
-        try:
-            return await _stream_turn_inner(client, messages)
-        except Exception as e:
-            status = getattr(e, "status_code", None) or getattr(e, "code", None)
-            if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
-                wait = 2 ** (attempt + 1)
-                print(f"\n{YELLOW}{DIM}[API error {status}, retrying in {wait}s...]{R}", flush=True)
-                await asyncio.sleep(wait)
-                continue
-            raise
-
-    # Unreachable but satisfies type checker
-    return "", [], ""
-
-
-async def _stream_turn_inner(client: AsyncOpenAI, messages: list) -> tuple[str, list, str]:
-    """Single attempt at streaming a DeepSeek turn."""
-
-    print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
+    if not quiet:
+        print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
 
     response = await client.chat.completions.create(
         model="deepseek-chat",
@@ -66,27 +46,30 @@ async def _stream_turn_inner(client: AsyncOpenAI, messages: list) -> tuple[str, 
     thinking_shown = False
 
     async for chunk in response:
-        # Track usage from final chunk
         if chunk.usage:
             u = chunk.usage
             cached = getattr(u.prompt_tokens_details, "cached_tokens", 0) or 0
             cost.record(u.prompt_tokens, u.completion_tokens, cached)
-            print(f" {DIM}[{cost.summary()}]{R}", flush=True)
+            # Only show cost on non-quiet turns (when DeepSeek speaks to user)
+            if not quiet:
+                print(f"{DIM}[{cost.summary()}]{R}", flush=True)
 
         choice = chunk.choices[0] if chunk.choices else None
         if not choice:
             continue
         delta = choice.delta
 
-        # Capture reasoning_content (thinking tokens)
         rc = getattr(delta, "reasoning_content", None)
         if rc:
-            if not thinking_shown:
+            if not thinking_shown and not quiet:
                 print(f"{DIM}thinking...{R} ", end="", flush=True)
                 thinking_shown = True
             reasoning += rc
 
         if delta.content:
+            if quiet:
+                # First content on a quiet turn — show a header now
+                print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
             print(f"{CYAN}{delta.content}{R}", end="", flush=True)
             content += delta.content
 
@@ -104,10 +87,32 @@ async def _stream_turn_inner(client: AsyncOpenAI, messages: list) -> tuple[str, 
                         tc_raw[i]["arguments"] += tc.function.arguments
 
     if content:
-        print()
+        print(f" {DIM}[{cost.summary()}]{R}", flush=True)
 
     tool_calls = list(tc_raw.values())
     return content, tool_calls, reasoning
+
+
+async def stream_turn(messages: list, quiet: bool = False) -> tuple[str, list, str]:
+    """
+    Send messages to DeepSeek with retry on transient errors.
+    Returns (content, tool_calls, reasoning_content).
+    """
+    client = get_client()
+
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await _api_call(client, messages, quiet=quiet)
+        except Exception as e:
+            status = getattr(e, "status_code", None) or getattr(e, "code", None)
+            if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
+                wait = 2 ** (attempt + 1)
+                print(f"\n{YELLOW}{DIM}[API error {status}, retrying in {wait}s...]{R}", flush=True)
+                await asyncio.sleep(wait)
+                continue
+            raise
+
+    return "", [], ""
 
 
 async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None = None) -> list:
@@ -116,12 +121,18 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
     DeepSeek stops making tool calls.
     Returns updated messages list.
     """
+    turn = 0
     while True:
         try:
-            content, tool_calls, reasoning = await stream_turn(messages)
+            # First turn: show header. Subsequent tool-only turns: quiet.
+            content, tool_calls, reasoning = await stream_turn(
+                messages, quiet=(turn > 0),
+            )
         except Exception as e:
             print(f"\n{YELLOW}[DeepSeek error: {e}]{R}", flush=True)
             break
+
+        turn += 1
 
         # Build assistant message with reasoning_content for thinking mode
         msg: dict = {"role": "assistant", "content": content or None}
@@ -138,14 +149,11 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
             ]
         messages.append(msg)
 
-        # No tool calls → DeepSeek is done, return to user
         if not tool_calls:
             break
 
         # Check for interrupt before executing tools
         if interrupt_event and interrupt_event.is_set():
-            # Must still provide tool results for every tool_call_id,
-            # otherwise the next API call will 400
             for tc in tool_calls:
                 messages.append({
                     "role": "tool",
@@ -155,10 +163,8 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
             break
 
         # Execute tools, append results, loop
-        print()
         executed_ids: set[str] = set()
         for tc in tool_calls:
-            # Check interrupt between tool calls too
             if interrupt_event and interrupt_event.is_set():
                 break
             try:
@@ -174,7 +180,7 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
             })
             executed_ids.add(tc["id"])
 
-        # Fill in placeholder results for any tool calls skipped by interrupt
+        # Fill placeholders for interrupted tool calls
         for tc in tool_calls:
             if tc["id"] not in executed_ids:
                 messages.append({

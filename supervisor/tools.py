@@ -37,11 +37,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file to understand context before giving instructions to Claude Code.",
+            "description": "RARELY NEEDED. Read a single file. Prefer run_claude for any exploration — Claude Code reads files much faster.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Relative or absolute file path"}
+                    "path": {"type": "string"}
                 },
                 "required": ["path"],
             },
@@ -51,7 +51,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List files matching a glob pattern to understand project structure.",
+            "description": "RARELY NEEDED. List files by glob. Prefer telling Claude Code to explore the project instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -65,7 +65,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_code",
-            "description": "Search for a text pattern in the codebase.",
+            "description": "RARELY NEEDED. Grep for a pattern. Prefer telling Claude Code to search instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -80,7 +80,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_git_status",
-            "description": "Quick check on what changed in the repo.",
+            "description": "Quick git status check.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -88,7 +88,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_shell",
-            "description": "Run a quick shell command (git log, ls, npm run build, etc.). For fast checks only.",
+            "description": "Run a quick shell command (git log, npm run build, etc.).",
             "parameters": {
                 "type": "object",
                 "properties": {

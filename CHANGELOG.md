@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 — 2026-03-26
+
+### Fixed
+
+* **Display noise in agent loop.** Every intermediate DeepSeek API call (tool-only turns) printed a separate `DeepSeek:` header and cost summary, creating cascading output. Now only the first turn shows the header; intermediate tool-only turns are quiet. Cost is shown when DeepSeek actually speaks.
+* **DeepSeek reading files endlessly.** Despite prompt guidance, DeepSeek still called read_file/list_files 10+ times in a row instead of delegating to Claude Code. Rewrote system prompt with explicit prohibition and added "RARELY NEEDED" to exploration tool descriptions.
+
 ## 0.2.2 — 2026-03-26
 
 ### Fixed
