@@ -21,7 +21,6 @@ def reset_session() -> None:
 async def run_claude(prompt: str, continue_session: bool = True) -> str:
     global _claude_proc, _claude_first
 
-    # Show the prompt DeepSeek sent (compact)
     prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
     print(f"\n{BLUE}{BOLD}┌─ Claude Code ─────────────────────────────────────{R}")
     print(f"{BLUE}{DIM}  {prompt_preview}{R}")
@@ -30,7 +29,6 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
     cmd = [
         "claude", "-p", prompt,
         "--output-format", "stream-json",
-        "--verbose",
         "--permission-mode", "bypassPermissions",
     ]
     if continue_session and not _claude_first:
@@ -48,7 +46,6 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
 
     chunks: list[str] = []
     tool_count = 0
-    last_was_tool = False
 
     try:
         async for raw in proc.stdout:
@@ -65,11 +62,10 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
                             continue
 
                         if block.get("type") == "text":
-                            txt = block["text"]
-                            if last_was_tool:
-                                print()  # newline after tool calls
-                                last_was_tool = False
-                            print(f"{BLUE}{txt}{R}")
+                            txt = block["text"].strip()
+                            if not txt:
+                                continue
+                            print(f"\n{BLUE}  {txt}{R}")
                             chunks.append(txt)
 
                         elif block.get("type") == "tool_use":
@@ -78,15 +74,14 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
                             inp = block.get("input", {})
                             hint = (
                                 inp.get("path")
+                                or inp.get("pattern")
+                                or inp.get("file_path")
                                 or inp.get("command", "")[:50]
                                 or inp.get("description", "")[:50]
                                 or ""
                             )
-                            if hint:
-                                print(f"{DIM}  ↳ {name}: {hint}{R}", flush=True)
-                            else:
-                                print(f"{DIM}  ↳ {name}{R}", flush=True)
-                            last_was_tool = True
+                            label = f"{name}: {hint}" if hint else name
+                            print(f"{DIM}  ↳ {label}{R}")
 
             except json.JSONDecodeError:
                 pass
@@ -102,7 +97,6 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
     print(f"{BLUE}{BOLD}└─ done{summary} ─────────────────────────────────────{R}\n")
 
     full = "\n".join(chunks) or "(no output)"
-    # Truncate what goes back to DeepSeek (display already showed everything)
     max_len = 4000
     if len(full) > max_len:
         return full[:max_len] + f"\n... (truncated, {len(full)} chars total)"

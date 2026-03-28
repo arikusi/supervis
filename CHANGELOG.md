@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 — 2026-03-28
+
+### Fixed
+
+* **Staircase display bug.** DeepSeek streaming tokens cascaded diagonally because every `delta.content` chunk on quiet turns printed a new `DeepSeek:` header. Added `header_shown` flag so the header prints only once per turn.
+* **Claude Code output cascading.** Tool call hints and text blocks mixed on the same line. Each block now starts on a fresh line with `\n` prefix. Removed `--verbose` flag (unnecessary output noise). Added `pattern` and `file_path` to tool hint extraction.
+
 ## 0.2.3 — 2026-03-26
 
 ### Fixed

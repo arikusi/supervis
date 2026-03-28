@@ -44,15 +44,13 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
     reasoning = ""
     tc_raw: dict[int, dict] = {}
     thinking_shown = False
+    header_shown = not quiet  # loud turns already printed header above
 
     async for chunk in response:
         if chunk.usage:
             u = chunk.usage
             cached = getattr(u.prompt_tokens_details, "cached_tokens", 0) or 0
             cost.record(u.prompt_tokens, u.completion_tokens, cached)
-            # Only show cost on non-quiet turns (when DeepSeek speaks to user)
-            if not quiet:
-                print(f"{DIM}[{cost.summary()}]{R}", flush=True)
 
         choice = chunk.choices[0] if chunk.choices else None
         if not choice:
@@ -67,9 +65,9 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
             reasoning += rc
 
         if delta.content:
-            if quiet:
-                # First content on a quiet turn — show a header now
+            if not header_shown:
                 print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
+                header_shown = True
             print(f"{CYAN}{delta.content}{R}", end="", flush=True)
             content += delta.content
 
