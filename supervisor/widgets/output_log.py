@@ -92,7 +92,7 @@ class OutputLog(RichLog):
             lines.append(f"  — {desc}\n")
         lines.append("\n  exit", style="bold")
         lines.append("  — quit\n")
-        lines.append("  Ctrl+D", style="bold")
+        lines.append("  Ctrl+Z", style="bold")
         lines.append("  — interrupt agent\n")
         lines.append("  Ctrl+Q", style="bold")
         lines.append("  — quit\n")

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 — 2026-03-29
+
+### Fixed
+
+* **Ctrl+Z for interrupt.** Changed interrupt key from Ctrl+D to Ctrl+Z. Ctrl+D was captured by Input widget's `delete_right` binding, never reaching the App. Ctrl+Z is not used by any Input binding.
+* **CI import check.** Updated workflow to test new module structure (app, orchestrator, events, commands, widgets) instead of removed `chat.py`.
+* **README logo duplication.** Removed redundant `<h1>supervis</h1>` since the logo SVG already contains the project name.
+
 ## 1.0.0 — 2026-03-28
 
 Full TUI rewrite with Textual. supervis is no longer a raw-terminal app — it has a proper interface with scrollable output, fixed input, and a live status bar.

@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/logo.svg" width="280" alt="supervis logo">
+  <img src="assets/logo.svg" width="300" alt="supervis">
 </p>
-
-<h1 align="center">supervis</h1>
 
 <p align="center">
   <a href="https://pypi.org/project/supervis/"><img src="https://img.shields.io/pypi/v/supervis" alt="PyPI version"></a>
@@ -80,7 +78,7 @@ Contents are injected into DeepSeek's system prompt on startup.
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+D` | Interrupt running agent |
+| `Ctrl+Z` | Interrupt running agent |
 | `Ctrl+Q` | Quit |
 | `exit` | Quit |
 

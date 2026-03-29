@@ -18,9 +18,8 @@ class SupervisApp(App):
 
     TITLE = "supervis"
 
-    # ctrl+d for interrupt (ctrl+c stays with Input for copy)
     BINDINGS = [
-        Binding("ctrl+d", "interrupt", "Interrupt agent", show=True),
+        Binding("ctrl+z", "interrupt", "Interrupt agent", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
 
@@ -59,7 +58,7 @@ class SupervisApp(App):
         subscribe(self._on_event)
         log = self.query_one("#output", OutputLog)
         log.write_system(f"Project: {self._project_dir}")
-        log.write_system("Ctrl+D = interrupt agent · Ctrl+Q = quit · /help for commands")
+        log.write_system("Ctrl+Z = interrupt agent · Ctrl+Q = quit · /help for commands")
         self.query_one("#input", InputBar).focus()
         self.run_worker(self._run_orchestrator(), exclusive=True)
 

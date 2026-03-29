@@ -1,3 +1,3 @@
 """DeepSeek Supervisor — Claude Code orchestrator."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

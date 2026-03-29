@@ -91,7 +91,7 @@ The config file stores `DEEPSEEK_API_KEY=sk-...` with 600 permissions.
 
 ## Controls
 
-* Ctrl+D: Interrupt the running agent
+* Ctrl+Z: Interrupt the running agent
 * Ctrl+Q: Quit
 * exit/quit/q: Quit
 
