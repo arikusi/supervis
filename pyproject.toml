@@ -8,6 +8,7 @@ version = "1.0.1"
 description = "DeepSeek supervisor for Claude Code"
 readme = "README.md"
 license = { text = "MIT" }
+authors = [{ name = "arikusi", email = "t@tahirl.com" }]
 requires-python = ">=3.10"
 dependencies = [
     "openai>=2.0.0",
