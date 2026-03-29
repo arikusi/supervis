@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
+  <defs>
+    <linearGradient id="ds-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4D6BFE"/>
+      <stop offset="100%" stop-color="#2D4FDD"/>
+    </linearGradient>
+    <linearGradient id="cl-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D97757"/>
+      <stop offset="100%" stop-color="#BF5E3E"/>
+    </linearGradient>
+    <linearGradient id="flow-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4D6BFE"/>
+      <stop offset="100%" stop-color="#D97757"/>
+    </linearGradient>
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6B8AFF"/>
+      <stop offset="50%" stop-color="#B8A0E0"/>
+      <stop offset="100%" stop-color="#E08A6A"/>
+    </linearGradient>
+  </defs>
+  <style>
+  @keyframes spin-cw{from{transform:rotate(0deg)} to{transform:rotate(360deg)}}
+  .spin-cw{animation-name:spin-cw;animation-duration:24s;animation-timing-function:linear;animation-iteration-count:infinite}
+  @keyframes spin-ccw{from{transform:rotate(0deg)} to{transform:rotate(-360deg)}}
+  .spin-ccw{animation-name:spin-ccw;animation-duration:30s;animation-timing-function:linear;animation-iteration-count:infinite}
+  @keyframes spin-ccw-slow{from{transform:rotate(0deg)} to{transform:rotate(-360deg)}}
+  .spin-ccw-slow{animation-name:spin-ccw-slow;animation-duration:36s;animation-timing-function:linear;animation-iteration-count:infinite}
+  @keyframes spin-cw-slow{from{transform:rotate(0deg)} to{transform:rotate(360deg)}}
+  .spin-cw-slow{animation-name:spin-cw-slow;animation-duration:40s;animation-timing-function:linear;animation-iteration-count:infinite}
+  @keyframes breathe{from{opacity:0.35} 50%{opacity:0.9} to{opacity:0.35}}
+  .breathe{animation-name:breathe;animation-duration:4s;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+  </style>
+  <circle cx="175" cy="200" r="72" class="spin-cw" fill="none" stroke="url(#ds-grad)" stroke-width="2" style="transform-box:fill-box;transform-origin:center"/>
+  <circle cx="175" cy="200" r="52" class="spin-ccw" fill="none" stroke="#4D6BFE" stroke-width="0.8" opacity="0.25" style="transform-box:fill-box;transform-origin:center"/>
+  <circle cx="175" cy="200" r="5" fill="#4D6BFE"/>
+  <path d="M 320 148 L 370 235 L 270 235 Z" class="spin-ccw-slow" fill="none" stroke="url(#cl-grad)" stroke-width="2" stroke-linejoin="round" style="transform-box:fill-box;transform-origin:center"/>
+  <path d="M 320 162 L 358 226 L 282 226 Z" class="spin-cw-slow" fill="none" stroke="#D97757" stroke-width="0.8" stroke-linejoin="round" opacity="0.25" style="transform-box:fill-box;transform-origin:center"/>
+  <circle cx="320" cy="200" r="4" fill="#D97757"/>
+  <path d="M 240 185 C 260 160 270 160 280 185" class="breathe" fill="none" stroke="url(#flow-grad)" stroke-width="1.5"/>
+  <path d="M 238 200 C 252 200 265 200 282 200" class="breathe" fill="none" stroke="url(#flow-grad)" stroke-width="1.5"/>
+  <path d="M 240 215 C 260 240 270 240 280 215" class="breathe" fill="none" stroke="url(#flow-grad)" stroke-width="1.5"/>
+  <text x="256" y="375" font-family="monospace" font-size="48" font-weight="bold" text-anchor="middle" fill="url(#text-grad)">supervis</text>
+  <rect x="130" y="390" width="252" height="1" rx="1" class="breathe" fill="url(#flow-grad)"/>
+</svg>

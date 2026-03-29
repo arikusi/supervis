@@ -3,7 +3,7 @@
 import asyncio
 import json
 import os
-from .display import BLUE, BOLD, DIM, R
+from .events import EventType, emit
 
 _claude_proc: asyncio.subprocess.Process | None = None
 _claude_first = True
@@ -21,14 +21,12 @@ def reset_session() -> None:
 async def run_claude(prompt: str, continue_session: bool = True) -> str:
     global _claude_proc, _claude_first
 
-    prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
-    print(f"\n{BLUE}{BOLD}┌─ Claude Code ─────────────────────────────────────{R}")
-    print(f"{BLUE}{DIM}  {prompt_preview}{R}")
-    print(f"{BLUE}{BOLD}├───────────────────────────────────────────────────{R}")
+    emit(EventType.CLAUDE_START, prompt=prompt)
 
     cmd = [
         "claude", "-p", prompt,
         "--output-format", "stream-json",
+        "--verbose",
         "--permission-mode", "bypassPermissions",
     ]
     if continue_session and not _claude_first:
@@ -65,7 +63,7 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
                             txt = block["text"].strip()
                             if not txt:
                                 continue
-                            print(f"\n{BLUE}  {txt}{R}")
+                            emit(EventType.CLAUDE_TEXT, text=txt)
                             chunks.append(txt)
 
                         elif block.get("type") == "tool_use":
@@ -81,7 +79,13 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
                                 or ""
                             )
                             label = f"{name}: {hint}" if hint else name
-                            print(f"{DIM}  ↳ {label}{R}")
+                            emit(EventType.CLAUDE_TOOL, label=label)
+
+                elif t == "result":
+                    result_text = data.get("result", "").strip()
+                    if result_text and result_text not in chunks:
+                        emit(EventType.CLAUDE_TEXT, text=result_text)
+                        chunks.append(result_text)
 
             except json.JSONDecodeError:
                 pass
@@ -93,8 +97,7 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
         _claude_proc = None
 
     await proc.wait()
-    summary = f" ({tool_count} tool calls)" if tool_count else ""
-    print(f"{BLUE}{BOLD}└─ done{summary} ─────────────────────────────────────{R}\n")
+    emit(EventType.CLAUDE_DONE, tool_count=tool_count)
 
     full = "\n".join(chunks) or "(no output)"
     max_len = 4000

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.0 — 2026-03-28
+
+Full TUI rewrite with Textual. supervis is no longer a raw-terminal app — it has a proper interface with scrollable output, fixed input, and a live status bar.
+
+### Added
+
+* **Textual TUI.** Replaced all raw print() output with a Textual-based terminal UI. Three-panel layout: scrollable output log (top), status bar (middle), fixed input (bottom).
+* **EventBus architecture.** Business logic (DeepSeek, Claude, tools) emits typed events. The UI subscribes and renders. No business logic file imports UI code. Clean separation of concerns.
+* **Slash command registry.** Extensible command system with `/reset` and `/help` built in. New commands can be added via `@register` decorator.
+* **Live Claude Code output.** Watch Claude work in real time — text blocks and tool calls appear as they happen, not buffered until completion.
+* **Status bar.** Shows thinking state, queued message count, and cumulative session cost.
+* **Message queuing with visual feedback.** Type while the agent works, see queue count in the status bar.
+* **supervis identity.** DeepSeek identifies as "supervis", not "project manager". Participates in creative/interactive requests instead of silently dispatching.
+
+### Changed
+
+* **Controls updated.** Ctrl+D interrupts the agent. Ctrl+Q quits. Input widget handles its own keyboard (backspace, arrows, copy/paste work natively).
+* **DeepSeek streaming buffered.** Tokens are collected and displayed as a complete message with cost, instead of character-by-character noise.
+* **Claude `result` event captured.** Stream-json `type: "result"` is now parsed, ensuring Claude's final response always reaches DeepSeek.
+* **Full prompts visible.** Claude Code prompts from DeepSeek are shown in full (no 120-char truncation).
+
+### Removed
+
+* **Raw terminal mode.** The old `tty.setraw()` + `_read_line_raw()` approach is gone. Textual handles all terminal I/O.
+* **display.py dependency.** ANSI color constants no longer used by business logic. Kept for backward compatibility but deprecated.
+
 ## 0.2.4 — 2026-03-28
 
 ### Fixed

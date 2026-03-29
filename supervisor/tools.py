@@ -4,7 +4,7 @@ import glob as _glob
 import subprocess
 from pathlib import Path
 from .claude import run_claude
-from .display import DIM, R
+from .events import EventType, emit
 
 # ─── Definitions ─────────────────────────────────────────────────────────────
 
@@ -175,7 +175,7 @@ async def execute_tool(name: str, args: dict) -> str:
 
     label_fn = _TOOL_LABELS.get(name)
     if label_fn:
-        print(f"  {DIM}[{label_fn(args)}]{R}", flush=True)
+        emit(EventType.TOOL_EXEC, label=label_fn(args))
 
     match name:
         case "read_file":

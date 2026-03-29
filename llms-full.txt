@@ -1,10 +1,10 @@
 # supervis — full documentation
 
-DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 0.2.0.
+DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 1.0.0.
 
 ## What it is
 
-supervis is a CLI tool that sits between you and Claude Code. Instead of writing prompts for Claude Code yourself, you tell supervis what you want and DeepSeek V3.2 (with thinking mode) manages the entire execution: planning steps, sending tasks to Claude Code, verifying results, and continuing until the job is done.
+supervis is a TUI tool that sits between you and Claude Code. Instead of writing prompts for Claude Code yourself, you tell supervis what you want and DeepSeek V3.2 (with thinking mode) manages the entire execution: planning steps, sending tasks to Claude Code, verifying results, and continuing until the job is done. You watch it all happen in real time.
 
 ## Install
 
@@ -14,7 +14,7 @@ pipx install supervis
 
 Requirements:
 * Python 3.10+
-* Claude Code CLI installed and authenticated (https://docs.anthropic.com/en/docs/claude-code)
+* Claude Code CLI installed and authenticated
 * DeepSeek API key (https://platform.deepseek.com/api-keys)
 
 ## Usage
@@ -24,28 +24,49 @@ cd myproject
 supervis
 ```
 
-Type your request. DeepSeek plans the approach using thinking mode, then sends steps to Claude Code one by one. You can type while the agent works — messages are queued and processed when the current step finishes.
+Type your request. DeepSeek plans the approach using thinking mode, then sends steps to Claude Code one by one. You can type while the agent works — messages queue and are processed after the current step.
+
+## TUI Layout
+
+supervis uses a Textual-based terminal UI with three sections:
+
+* **Output area** (top, scrollable): Shows DeepSeek's responses, Claude Code's live output (text + tool calls), system messages, and cost tracking.
+* **Status bar** (middle): Shows thinking state, queued message count, and cumulative cost.
+* **Input bar** (bottom): Fixed input field. Type anytime, even while the agent works.
 
 ## Architecture
 
+Event-driven design. Business logic emits typed events through an EventBus. The TUI subscribes and renders. No business logic file imports UI code.
+
 ```
-User input
-  → DeepSeek V3.2 (thinking mode, plans next step)
-    → Claude Code (writes/edits/tests code via subprocess)
-      → Result returned to DeepSeek
-        → DeepSeek sends next step or reports completion
-          → Back to user
+User input → Textual InputBar → asyncio.Queue → Orchestrator
+  → DeepSeek API (thinking mode, streaming)
+    → Claude Code subprocess (stream-json)
+      → Tool results back to DeepSeek
+        → Next step or final summary
+          → EventBus → Textual widgets (OutputLog, StatusBar)
 ```
 
-DeepSeek has these tools:
-* run_claude: Send a task to Claude Code (main tool)
-* read_file: Read a file for context before delegating
-* list_files: Glob pattern matching for project structure
-* search_code: Grep-style code search
-* run_shell: Quick shell commands (git log, npm run build, ls)
-* get_git_status: Git status + recent commits
+### Module structure
 
-Claude Code runs with `--permission-mode bypassPermissions` so it can edit files without per-file confirmation. Sessions are reused via `--continue` for context continuity.
+```
+supervisor/
+  app.py           — Textual App subclass, layout, key bindings, event bridge
+  orchestrator.py  — Pure async orchestrator, reads from queue, drives agent loop
+  deepseek.py      — DeepSeek API client, streaming with retry, agentic tool loop
+  claude.py        — Claude Code subprocess management, stream-json parsing
+  events.py        — EventBus singleton with typed event dataclasses
+  commands.py      — Slash command registry with decorator-based registration
+  tools.py         — Tool definitions and implementations for DeepSeek
+  widgets/
+    output_log.py  — RichLog subclass with semantic write methods
+    input_bar.py   — Input subclass (Textual default behavior)
+    status_bar.py  — Static widget with reactive properties
+  config.py        — API key resolution + project instructions loading
+  cost.py          — Token counting and cost calculation
+  memory.py        — Conversation summarization when history grows
+  prompts.py       — DeepSeek system prompt
+```
 
 ## Project instructions (.supervis/)
 
@@ -57,7 +78,7 @@ Follow the plan in PLAN.md.
 Run `npm run build` after changes.
 ```
 
-Contents are injected into DeepSeek's system prompt on startup. Use this for project constraints, tech stack notes, coding conventions, or pointers to plan documents.
+Contents are injected into DeepSeek's system prompt on startup.
 
 ## Configuration
 
@@ -70,20 +91,22 @@ The config file stores `DEEPSEEK_API_KEY=sk-...` with 600 permissions.
 
 ## Controls
 
-* ESC or Ctrl+C: Interrupt the running agent, return to prompt
-* Ctrl+C twice at idle: Exit
-* `exit`, `quit`, `q`: Exit
+* Ctrl+D: Interrupt the running agent
+* Ctrl+Q: Quit
+* exit/quit/q: Quit
 
 ## Commands
 
-* `/reset`: Reset Claude Code session and conversation history
-* `/help`: Show available commands
+* /reset: Reset Claude Code session and conversation history
+* /help: Show available commands
+
+Commands are extensible via the registry in `commands.py`.
 
 ## Cost tracking
 
-After each DeepSeek response:
+Shown in the status bar and after each DeepSeek response:
 ```
-[in 12.3k  4.1k cached · out 0.8k · $0.0031]
+in 12.3k  4.1k cached · out 0.8k · $0.0031
 ```
 
 DeepSeek V3.2 pricing (March 2026):
@@ -93,25 +116,19 @@ DeepSeek V3.2 pricing (March 2026):
 
 ## Error handling
 
-* DeepSeek API errors (429 rate limit, 5xx server errors) are retried up to 3 times with exponential backoff (2s, 4s, 8s). After exhausting retries, control returns to the prompt without crashing the session.
-* Claude Code output is truncated to 4000 characters before sending back to DeepSeek to prevent context overflow. Full output is always displayed in the terminal.
-* Conversation history is automatically summarized when it exceeds 40 messages, keeping the system prompt + summary + last 12 messages.
+* DeepSeek API errors (429 rate limit, 5xx server errors) retry up to 3 times with exponential backoff.
+* Interrupted tool calls get placeholder results so the message history stays valid.
+* Claude Code output truncated to 4000 chars before sending to DeepSeek (full output displayed in TUI).
+* Conversation history summarized when it exceeds 40 messages.
 
-## Module structure
+## DeepSeek tools
 
-```
-supervisor/
-  main.py       — CLI entry point
-  chat.py       — Main loop, input queue, interrupt handling
-  deepseek.py   — DeepSeek API client, streaming, agent loop, retry
-  claude.py     — Claude Code subprocess, stream-json parsing
-  tools.py      — Tool definitions and implementations
-  prompts.py    — System prompt
-  memory.py     — Conversation summarization
-  config.py     — API key + project instructions loading
-  cost.py       — Token and cost tracking
-  display.py    — Terminal colors and formatting
-```
+* **run_claude**: Send a task to Claude Code (primary tool)
+* **read_file**: Read a single file (rarely needed)
+* **list_files**: Glob pattern file listing
+* **search_code**: Grep-style code search
+* **run_shell**: Quick shell commands
+* **get_git_status**: Git status + recent commits
 
 ## License
 

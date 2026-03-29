@@ -32,7 +32,8 @@ async def summarize_if_needed(
 
     to_summarize = _clean_for_summarize(to_summarize)
 
-    print("\n\033[2m[Summarizing conversation history...]\033[0m", flush=True)
+    from .events import EventType, emit
+    emit(EventType.SUMMARY)
     try:
         resp = await client.chat.completions.create(
             model="deepseek-chat",

@@ -1,17 +1,17 @@
 # supervis
 
-> DeepSeek-powered supervisor that drives Claude Code autonomously through software projects.
+> DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Full TUI with live output, message queuing, and project-aware configuration.
 
 ## Docs
 
-* [README](https://github.com/arikusi/supervis/blob/main/README.md) — install, usage, configuration
+* [README](https://github.com/arikusi/supervis/blob/main/README.md) — install, usage, architecture
 * [Changelog](https://github.com/arikusi/supervis/blob/main/CHANGELOG.md) — version history
 * [Full docs (single file)](https://github.com/arikusi/supervis/blob/main/llms-full.txt) — everything in one context-window-friendly file
 * [PyPI](https://pypi.org/project/supervis/) — package page
 
 ## Overview
 
-supervis is a CLI tool that uses DeepSeek V3.2 (with thinking mode) as a project manager to orchestrate Claude Code. You describe what you want, DeepSeek breaks it into steps, sends each step to Claude Code, and keeps going until the task is complete. Project-specific instructions can be loaded from `.supervis/SUPERVIS.md`.
+supervis is a TUI tool that uses DeepSeek V3.2 (with thinking mode) as a supervisor to orchestrate Claude Code. You describe what you want, DeepSeek breaks it into steps, sends each step to Claude Code, and keeps going until the task is complete. Watch Claude work in real time. Type while the agent works. Project-specific instructions via `.supervis/SUPERVIS.md`.
 
 ## Quick start
 

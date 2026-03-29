@@ -5,7 +5,7 @@ import json
 from openai import AsyncOpenAI
 from .config import get_api_key
 from .tools import TOOLS, execute_tool
-from .display import CYAN, YELLOW, BOLD, DIM, R
+from .events import EventType, emit
 from . import cost
 
 _client: AsyncOpenAI | None = None
@@ -25,10 +25,9 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
     """
     Single DeepSeek API call with streaming.
     Returns (content, tool_calls, reasoning_content).
-    quiet=True suppresses the 'DeepSeek:' header (used for intermediate loop turns).
     """
     if not quiet:
-        print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
+        emit(EventType.DEEPSEEK_START)
 
     response = await client.chat.completions.create(
         model="deepseek-chat",
@@ -44,7 +43,7 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
     reasoning = ""
     tc_raw: dict[int, dict] = {}
     thinking_shown = False
-    header_shown = not quiet  # loud turns already printed header above
+    header_shown = not quiet
 
     async for chunk in response:
         if chunk.usage:
@@ -59,16 +58,16 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
 
         rc = getattr(delta, "reasoning_content", None)
         if rc:
-            if not thinking_shown and not quiet:
-                print(f"{DIM}thinking...{R} ", end="", flush=True)
+            if not thinking_shown:
+                emit(EventType.DEEPSEEK_THINKING)
                 thinking_shown = True
             reasoning += rc
 
         if delta.content:
             if not header_shown:
-                print(f"\n{CYAN}{BOLD}DeepSeek:{R} ", end="", flush=True)
+                emit(EventType.DEEPSEEK_START)
                 header_shown = True
-            print(f"{CYAN}{delta.content}{R}", end="", flush=True)
+            emit(EventType.DEEPSEEK_TOKEN, text=delta.content)
             content += delta.content
 
         if delta.tool_calls:
@@ -84,8 +83,7 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
                     if tc.function.arguments:
                         tc_raw[i]["arguments"] += tc.function.arguments
 
-    if content:
-        print(f" {DIM}[{cost.summary()}]{R}", flush=True)
+    emit(EventType.DEEPSEEK_DONE, cost=cost.summary())
 
     tool_calls = list(tc_raw.values())
     return content, tool_calls, reasoning
@@ -105,7 +103,7 @@ async def stream_turn(messages: list, quiet: bool = False) -> tuple[str, list, s
             status = getattr(e, "status_code", None) or getattr(e, "code", None)
             if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
                 wait = 2 ** (attempt + 1)
-                print(f"\n{YELLOW}{DIM}[API error {status}, retrying in {wait}s...]{R}", flush=True)
+                emit(EventType.DEEPSEEK_RETRY, status=status, wait=wait)
                 await asyncio.sleep(wait)
                 continue
             raise
@@ -122,17 +120,15 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
     turn = 0
     while True:
         try:
-            # First turn: show header. Subsequent tool-only turns: quiet.
             content, tool_calls, reasoning = await stream_turn(
                 messages, quiet=(turn > 0),
             )
         except Exception as e:
-            print(f"\n{YELLOW}[DeepSeek error: {e}]{R}", flush=True)
+            emit(EventType.DEEPSEEK_ERROR, error=str(e))
             break
 
         turn += 1
 
-        # Build assistant message with reasoning_content for thinking mode
         msg: dict = {"role": "assistant", "content": content or None}
         if reasoning:
             msg["reasoning_content"] = reasoning
@@ -150,7 +146,6 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
         if not tool_calls:
             break
 
-        # Check for interrupt before executing tools
         if interrupt_event and interrupt_event.is_set():
             for tc in tool_calls:
                 messages.append({
@@ -160,7 +155,6 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
                 })
             break
 
-        # Execute tools, append results, loop
         executed_ids: set[str] = set()
         for tc in tool_calls:
             if interrupt_event and interrupt_event.is_set():
@@ -178,7 +172,6 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
             })
             executed_ids.add(tc["id"])
 
-        # Fill placeholders for interrupted tool calls
         for tc in tool_calls:
             if tc["id"] not in executed_ids:
                 messages.append({
