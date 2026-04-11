@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+
 from .events import EventType, emit
 
 # Module-level fallback for backward compat (used when no session passed)
@@ -34,10 +35,14 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     truncation = session.truncation_limit if session else 4000
 
     cmd = [
-        "claude", "-p", prompt,
-        "--output-format", "stream-json",
+        "claude",
+        "-p",
+        prompt,
+        "--output-format",
+        "stream-json",
         "--verbose",
-        "--permission-mode", "bypassPermissions",
+        "--permission-mode",
+        "bypassPermissions",
     ]
     if continue_session and not is_first:
         cmd.append("--continue")

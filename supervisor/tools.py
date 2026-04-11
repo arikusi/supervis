@@ -3,6 +3,7 @@
 import glob as _glob
 import subprocess
 from pathlib import Path
+
 from .claude import run_claude
 from .events import EventType, emit
 
@@ -40,9 +41,7 @@ TOOLS = [
             "description": "RARELY NEEDED. Read a single file. Prefer run_claude for any exploration — Claude Code reads files much faster.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string"}
-                },
+                "properties": {"path": {"type": "string"}},
                 "required": ["path"],
             },
         },
@@ -54,9 +53,7 @@ TOOLS = [
             "description": "RARELY NEEDED. List files by glob. Prefer telling Claude Code to explore the project instead.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "pattern": {"type": "string"}
-                },
+                "properties": {"pattern": {"type": "string"}},
                 "required": ["pattern"],
             },
         },
@@ -91,9 +88,7 @@ TOOLS = [
             "description": "Run a quick shell command (git log, npm run build, etc.).",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "command": {"type": "string"}
-                },
+                "properties": {"command": {"type": "string"}},
                 "required": ["command"],
             },
         },
@@ -105,9 +100,16 @@ TOOLS = [
 _SKIP = {".git/", "__pycache__", "node_modules", ".venv", ".next"}
 
 _BLOCKED_PATTERNS = [
-    "rm -rf /", "rm -rf ~", "rm -rf $HOME",
-    "mkfs", "dd if=", "> /dev/sd", ">/dev/sd",
-    "shutdown", "reboot", "kill -9 1",
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf $HOME",
+    "mkfs",
+    "dd if=",
+    "> /dev/sd",
+    ">/dev/sd",
+    "shutdown",
+    "reboot",
+    "kill -9 1",
     "chmod -R 777 /",
     ":(){ :",  # fork bomb
 ]
@@ -133,12 +135,25 @@ def _list_files(pattern: str) -> str:
 def _search_code(pattern: str, path: str = ".") -> str:
     try:
         result = subprocess.run(
-            ["grep", "-r", "-n", "--include=*.py", "--include=*.ts", "--include=*.tsx",
-             "--include=*.js", "--include=*.jsx", "--include=*.json", "--include=*.md",
-             pattern, path],
-            capture_output=True, text=True, timeout=10,
+            [
+                "grep",
+                "-r",
+                "-n",
+                "--include=*.py",
+                "--include=*.ts",
+                "--include=*.tsx",
+                "--include=*.js",
+                "--include=*.jsx",
+                "--include=*.json",
+                "--include=*.md",
+                pattern,
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
-        lines = [l for l in result.stdout.splitlines() if not any(s in l for s in _SKIP)]
+        lines = [line for line in result.stdout.splitlines() if not any(s in line for s in _SKIP)]
         return "\n".join(lines[:80]) if lines else "No matches."
     except Exception as e:
         return f"Error: {e}"
@@ -152,7 +167,11 @@ def _run_shell(command: str, timeout: int = 15) -> str:
 
     try:
         result = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=timeout,
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         out = (result.stdout + result.stderr).strip()
         return out[:3000] if out else "(no output)"
@@ -164,7 +183,10 @@ def _get_git_status() -> str:
     try:
         result = subprocess.run(
             "git status --short && echo '---' && git log --oneline -5 2>/dev/null",
-            shell=True, capture_output=True, text=True, timeout=10,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return result.stdout.strip() or "(clean)"
     except Exception as e:
@@ -174,11 +196,11 @@ def _get_git_status() -> str:
 # ─── Dispatcher ──────────────────────────────────────────────────────────────
 
 _TOOL_LABELS = {
-    "read_file":      lambda a: f"read {a.get('path', '')}",
-    "list_files":     lambda a: f"ls {a.get('pattern', '')}",
-    "search_code":    lambda a: f"grep '{a.get('pattern', '')}'",
+    "read_file": lambda a: f"read {a.get('path', '')}",
+    "list_files": lambda a: f"ls {a.get('pattern', '')}",
+    "search_code": lambda a: f"grep '{a.get('pattern', '')}'",
     "get_git_status": lambda a: "git status",
-    "run_shell":      lambda a: f"$ {a.get('command', '')[:50]}",
+    "run_shell": lambda a: f"$ {a.get('command', '')[:50]}",
 }
 
 

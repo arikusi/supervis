@@ -1,11 +1,11 @@
 """Tests for supervisor.deepseek module — retry logic and agent loop."""
 
-import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from supervisor.deepseek import stream_turn, run_agent_loop, _RETRYABLE_CODES
-from supervisor.session import Session, CostTracker
+import pytest
+
+from supervisor.deepseek import run_agent_loop, stream_turn
+from supervisor.session import Session
 
 
 class FakeAPIError(Exception):
@@ -68,9 +68,8 @@ class TestRetryLogic:
             raise FakeAPIError(400)
 
         session = _make_session([{"role": "system", "content": "sys"}])
-        with patch("supervisor.deepseek._api_call", side_effect=mock_api_call):
-            with pytest.raises(FakeAPIError):
-                await stream_turn(session)
+        with patch("supervisor.deepseek._api_call", side_effect=mock_api_call), pytest.raises(FakeAPIError):
+            await stream_turn(session)
 
     @pytest.mark.asyncio
     async def test_exhausts_retries(self):

@@ -1,9 +1,10 @@
 """Tests for supervisor.memory module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from supervisor.memory import summarize_if_needed, _clean_for_summarize
+import pytest
+
+from supervisor.memory import _clean_for_summarize, summarize_if_needed
 from supervisor.session import Session
 
 

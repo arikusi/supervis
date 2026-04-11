@@ -1,6 +1,7 @@
 """Conversation history management and summarization."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -34,9 +35,7 @@ def _format_messages_for_summary(messages: list) -> str:
         if role == "assistant":
             tool_calls = m.get("tool_calls", [])
             if tool_calls:
-                tools = ", ".join(
-                    tc.get("function", {}).get("name", "?") for tc in tool_calls
-                )
+                tools = ", ".join(tc.get("function", {}).get("name", "?") for tc in tool_calls)
                 parts.append(f"**Assistant** (called: {tools}): {content or '(tools only)'}")
             elif content:
                 parts.append(f"**Assistant**: {content}")
@@ -62,6 +61,7 @@ async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
     to_summarize = _clean_for_summarize(to_summarize)
 
     from .events import EventType, emit
+
     emit(EventType.SUMMARY)
     try:
         resp = await session.client.chat.completions.create(

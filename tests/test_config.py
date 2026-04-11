@@ -1,13 +1,12 @@
 """Tests for supervisor.config module — TOML config system."""
 
-import os
-import pytest
-from pathlib import Path
-from unittest.mock import patch
-
 from supervisor.config import (
-    Config, load_config, load_project_instructions,
-    _apply_toml, _apply_env, _read_toml,
+    Config,
+    _apply_env,
+    _apply_toml,
+    _read_toml,
+    load_config,
+    load_project_instructions,
 )
 
 

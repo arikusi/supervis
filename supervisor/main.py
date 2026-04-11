@@ -16,7 +16,8 @@ def main() -> None:
     os.chdir(project_dir)
 
     # Load config (TOML, layered)
-    from .config import load_config, prompt_api_key, load_project_instructions
+    from .config import load_config, load_project_instructions, prompt_api_key
+
     config = load_config(project_dir)
 
     # Resolve API key if not in config or env
@@ -25,6 +26,7 @@ def main() -> None:
 
     # Build system prompt
     from .prompts import SYSTEM_PROMPT
+
     system_prompt = SYSTEM_PROMPT
     project_instructions = load_project_instructions(project_dir)
     if project_instructions:
@@ -32,6 +34,7 @@ def main() -> None:
 
     # Launch TUI
     from .app import SupervisApp
+
     app = SupervisApp(project_dir=project_dir, system_prompt=system_prompt, config=config)
     app.run()
 

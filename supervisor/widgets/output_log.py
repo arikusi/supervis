@@ -1,8 +1,7 @@
 """Scrollable output area for all agent output."""
 
-from textual.widgets import RichLog
-from rich.panel import Panel
 from rich.text import Text
+from textual.widgets import RichLog
 
 
 class OutputLog(RichLog):

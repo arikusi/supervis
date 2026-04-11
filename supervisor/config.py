@@ -136,9 +136,9 @@ def prompt_api_key() -> str:
     print("Get one at: https://platform.deepseek.com/api-keys\n")
     try:
         key = input("Enter your API key: ").strip()
-    except (EOFError, KeyboardInterrupt):
+    except (EOFError, KeyboardInterrupt) as exc:
         print("\nCancelled.")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
     if not key:
         print("No key entered. Exiting.")

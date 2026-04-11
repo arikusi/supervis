@@ -3,6 +3,7 @@
 import asyncio
 import time
 from dataclasses import dataclass, field
+
 from openai import AsyncOpenAI
 
 
@@ -112,6 +113,4 @@ class Session:
 
         for i in range(last_user_idx):
             if "reasoning_content" in self.messages[i]:
-                self.messages[i] = {
-                    k: v for k, v in self.messages[i].items() if k != "reasoning_content"
-                }
+                self.messages[i] = {k: v for k, v in self.messages[i].items() if k != "reasoning_content"}

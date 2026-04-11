@@ -1,9 +1,10 @@
 """Tests for supervisor.claude module — output truncation and timeout logic."""
 
-import json
 import asyncio
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
 
 from supervisor.claude import run_claude
 
@@ -12,9 +13,7 @@ def _make_stream_line(text: str) -> bytes:
     """Create a stream-json line as Claude Code would emit."""
     data = {
         "type": "assistant",
-        "message": {
-            "content": [{"type": "text", "text": text}]
-        },
+        "message": {"content": [{"type": "text", "text": text}]},
     }
     return (json.dumps(data) + "\n").encode()
 
@@ -71,7 +70,7 @@ async def test_subprocess_timeout():
 
     async def fake_wait_for(coro, *, timeout):
         # Consume the coroutine to avoid warnings
-        coro.close() if hasattr(coro, 'close') else None
+        coro.close() if hasattr(coro, "close") else None
         raise asyncio.TimeoutError()
 
     with (

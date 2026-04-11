@@ -5,14 +5,14 @@ import asyncio
 from openai import AsyncOpenAI
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Header, Footer, Input, RichLog
+from textual.widgets import Footer, Header, Input
 
-from .widgets import OutputLog, InputBar, StatusBar
-from .events import EventType, Event, subscribe, unsubscribe, emit
-from .commands import dispatch, get_help
 from .claude import get_proc, reset_session
-from .session import Session
+from .commands import dispatch, get_help
 from .config import Config
+from .events import Event, EventType, emit, subscribe, unsubscribe
+from .session import Session
+from .widgets import InputBar, OutputLog, StatusBar
 
 
 class SupervisApp(App):
@@ -194,14 +194,18 @@ class SupervisApp(App):
     async def _check_update(self) -> None:
         """Non-blocking version check on startup."""
         from .version_check import check_for_update
+
         latest = await check_for_update()
         if latest:
             from . import __version__
-            emit(EventType.STATUS, text=f"Update available: supervis {latest} (you have {__version__}). Run: pipx upgrade supervis")
+
+            msg = f"Update available: supervis {latest} (you have {__version__}). Run: pipx upgrade supervis"
+            emit(EventType.STATUS, text=msg)
 
     async def _run_orchestrator(self) -> None:
         """Main agent loop. Runs as a Textual worker."""
         from .orchestrator import orchestrate
+
         await orchestrate(
             message_queue=self._user_queue,
             session=self.session,

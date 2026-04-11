@@ -1,11 +1,6 @@
 """Tests for supervisor.tools module (non-Claude tools only)."""
 
-import os
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-from supervisor.tools import _read_file, _list_files, _run_shell, _get_git_status
+from supervisor.tools import _get_git_status, _list_files, _read_file, _run_shell
 
 
 class TestReadFile:
@@ -63,7 +58,7 @@ class TestRunShell:
         assert result == "(no output)"
 
     def test_truncates_long_output(self):
-        result = _run_shell(f"python -c \"print('x' * 5000)\"")
+        result = _run_shell("python -c \"print('x' * 5000)\"")
         assert len(result) <= 3000
 
 

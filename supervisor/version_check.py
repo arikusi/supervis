@@ -2,8 +2,8 @@
 
 import asyncio
 import json
-from urllib.request import urlopen
 from urllib.error import URLError
+from urllib.request import urlopen
 
 from . import __version__
 

@@ -2,10 +2,10 @@
 
 import asyncio
 import json
-from openai import AsyncOpenAI
+
+from .events import EventType, emit
 from .session import Session
 from .tools import TOOLS, execute_tool
-from .events import EventType, emit
 
 _RETRYABLE_CODES = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 3
@@ -128,7 +128,8 @@ async def run_agent_loop(session: Session) -> None:
     while True:
         try:
             content, tool_calls, reasoning = await stream_turn(
-                session, quiet=(turn > 0),
+                session,
+                quiet=(turn > 0),
             )
         except Exception as e:
             emit(EventType.DEEPSEEK_ERROR, error=str(e))
@@ -155,11 +156,13 @@ async def run_agent_loop(session: Session) -> None:
 
         if session.interrupt_event.is_set():
             for tc in tool_calls:
-                session.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": "(interrupted by user)",
-                })
+                session.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": "(interrupted by user)",
+                    }
+                )
             break
 
         executed_ids: set[str] = set()
@@ -172,17 +175,21 @@ async def run_agent_loop(session: Session) -> None:
                 args = {}
 
             result = await execute_tool(tc["name"], args, session)
-            session.messages.append({
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": str(result),
-            })
+            session.messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": str(result),
+                }
+            )
             executed_ids.add(tc["id"])
 
         for tc in tool_calls:
             if tc["id"] not in executed_ids:
-                session.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": "(interrupted by user)",
-                })
+                session.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": "(interrupted by user)",
+                    }
+                )

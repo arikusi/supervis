@@ -5,12 +5,12 @@ drives the DeepSeek agent loop, handles resets.
 """
 
 import asyncio
-from typing import Callable
+from collections.abc import Callable
 
 from .deepseek import run_agent_loop
+from .events import EventType, emit
 from .memory import summarize_if_needed
 from .session import Session
-from .events import EventType, emit
 
 
 async def orchestrate(

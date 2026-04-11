@@ -7,9 +7,10 @@ Each handler receives (app, args_string) where app is the Textual App instance.
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any
 
 _commands: dict[str, Callable] = {}
 _help_entries: list[tuple[str, str]] = []
@@ -17,11 +18,13 @@ _help_entries: list[tuple[str, str]] = []
 
 def register(name: str, description: str = ""):
     """Decorator to register a slash command."""
+
     def decorator(fn: Callable):
         _commands[name] = fn
         if description:
             _help_entries.append((name, description))
         return fn
+
     return decorator
 
 
@@ -52,6 +55,7 @@ def get_help() -> list[tuple[str, str]]:
 
 # ─── Built-in commands ───────────────────────────────────────────────────────
 
+
 @register("reset", "Reset Claude session and conversation history")
 def _cmd_reset(app, args: str) -> None:
     app.handle_reset()
@@ -65,15 +69,16 @@ def _cmd_help(app, args: str) -> None:
 # ─── Model switching ─────────────────────────────────────────────────────────
 
 _MODEL_PROFILES = {
-    "chat":      ("deepseek-chat", True, "deepseek-chat (thinking enabled, 8K max output)"),
+    "chat": ("deepseek-chat", True, "deepseek-chat (thinking enabled, 8K max output)"),
     "chat-fast": ("deepseek-chat", False, "deepseek-chat (no thinking, faster responses, 8K max output)"),
-    "reasoner":  ("deepseek-reasoner", False, "deepseek-reasoner (thinking built-in, 64K max output)"),
+    "reasoner": ("deepseek-reasoner", False, "deepseek-reasoner (thinking built-in, 64K max output)"),
 }
 
 
 @register("model", "Switch model: /model chat | chat-fast | reasoner")
 def _cmd_model(app, args: str) -> None:
     from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
     session = app.session
 
@@ -94,14 +99,17 @@ def _cmd_model(app, args: str) -> None:
     session.switch_model(model, thinking)
     log.write_system(f"Switched to {desc}")
     from .widgets import StatusBar
+
     app.query_one("#status", StatusBar).model_text = name
 
 
 # ─── Status ──────────────────────────────────────────────────────────────────
 
+
 @register("status", "Show session status")
 def _cmd_status(app, args: str) -> None:
     from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
     session = app.session
 
@@ -127,18 +135,17 @@ def _cmd_status(app, args: str) -> None:
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
+
 @register("config", "Show current configuration")
 def _cmd_config(app, args: str) -> None:
     from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
     session = app.session
 
     # Mask API key
     key = session.client.api_key or ""
-    if len(key) > 8:
-        masked = key[:3] + "..." + key[-4:]
-    else:
-        masked = "***"
+    masked = key[:3] + "..." + key[-4:] if len(key) > 8 else "***"
 
     lines = [
         f"api_key = {masked}",
@@ -155,9 +162,11 @@ def _cmd_config(app, args: str) -> None:
 
 # ─── Export ──────────────────────────────────────────────────────────────────
 
+
 @register("export", "Export conversation: /export md | json")
 def _cmd_export(app, args: str) -> None:
     from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
     session = app.session
 
@@ -195,26 +204,22 @@ def _cmd_export(app, args: str) -> None:
 
 # ─── Undo ────────────────────────────────────────────────────────────────────
 
+
 @register("undo", "Undo last changes (git stash)")
 def _cmd_undo(app, args: str) -> None:
     from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
 
     try:
-        diff = subprocess.run(
-            "git diff --stat HEAD", shell=True, capture_output=True, text=True, timeout=10
-        )
+        diff = subprocess.run("git diff --stat HEAD", shell=True, capture_output=True, text=True, timeout=10)
         if diff.stdout.strip():
             log.write_system(f"Changes:\n{diff.stdout.strip()}")
-            result = subprocess.run(
-                "git stash", shell=True, capture_output=True, text=True, timeout=10
-            )
+            result = subprocess.run("git stash", shell=True, capture_output=True, text=True, timeout=10)
             log.write_system(result.stdout.strip() or "Stashed.")
         else:
             # Nothing to stash, try reverting last commit
-            result = subprocess.run(
-                "git revert HEAD --no-edit", shell=True, capture_output=True, text=True, timeout=10
-            )
+            result = subprocess.run("git revert HEAD --no-edit", shell=True, capture_output=True, text=True, timeout=10)
             output = (result.stdout + result.stderr).strip()
             log.write_system(output or "Reverted last commit.")
     except Exception as e:
@@ -223,10 +228,12 @@ def _cmd_undo(app, args: str) -> None:
 
 # ─── Budget ──────────────────────────────────────────────────────────────────
 
+
 @register("update", "Check for supervis updates")
 def _cmd_update(app, args: str) -> None:
-    from .widgets import OutputLog
     from .version_check import check_for_update_sync
+    from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
 
     log.write_system("Checking for updates...")
@@ -241,6 +248,7 @@ def _cmd_update(app, args: str) -> None:
 @register("budget", "Show cost budget status")
 def _cmd_budget(app, args: str) -> None:
     from .widgets import OutputLog
+
     log = app.query_one("#output", OutputLog)
     session = app.session
 

@@ -1,9 +1,8 @@
 """Tests for supervisor.session module."""
 
-import pytest
 from unittest.mock import MagicMock
 
-from supervisor.session import Session, CostTracker
+from supervisor.session import CostTracker, Session
 
 
 class TestCostTracker:

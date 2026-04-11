@@ -5,9 +5,9 @@ The UI layer subscribes and renders. No business logic file imports UI modules.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +53,10 @@ def subscribe(fn: Callable[[Event], None]) -> None:
 
 
 def unsubscribe(fn: Callable[[Event], None]) -> None:
-    try:
+    import contextlib
+
+    with contextlib.suppress(ValueError):
         _subscribers.remove(fn)
-    except ValueError:
-        pass
 
 
 def emit(event_type: EventType, **data) -> None:

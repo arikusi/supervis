@@ -1,8 +1,7 @@
 """Tests for supervisor.version_check module."""
 
 import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from supervisor.version_check import _fetch_latest, check_for_update_sync
 
