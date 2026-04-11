@@ -104,6 +104,8 @@ class SupervisApp(App):
                 log.write_claude_tool(d.get("label", ""))
             case EventType.CLAUDE_DONE:
                 log.write_claude_done(d.get("tool_count", 0))
+            case EventType.CLAUDE_ERROR:
+                log.write_deepseek_error(d.get("error", "Claude error"))
             case EventType.TOOL_EXEC:
                 log.write_tool_exec(d.get("label", ""))
             case EventType.STATUS:

@@ -67,6 +67,36 @@ class TestRunShell:
         assert len(result) <= 3000
 
 
+class TestRunShellBlocklist:
+    def test_blocks_rm_rf_root(self):
+        result = _run_shell("rm -rf /")
+        assert "blocked" in result.lower()
+
+    def test_blocks_rm_rf_home(self):
+        result = _run_shell("rm -rf ~")
+        assert "blocked" in result.lower()
+
+    def test_blocks_mkfs(self):
+        result = _run_shell("mkfs.ext4 /dev/sda1")
+        assert "blocked" in result.lower()
+
+    def test_blocks_fork_bomb(self):
+        result = _run_shell(":(){ :|:& };:")
+        assert "blocked" in result.lower()
+
+    def test_blocks_case_insensitive(self):
+        result = _run_shell("RM -RF /")
+        assert "blocked" in result.lower()
+
+    def test_allows_safe_commands(self):
+        result = _run_shell("echo safe")
+        assert result.strip() == "safe"
+
+    def test_allows_rm_in_project(self):
+        result = _run_shell("rm -rf ./build")
+        assert "blocked" not in result.lower()
+
+
 class TestGetGitStatus:
     def test_returns_string(self):
         result = _get_git_status()

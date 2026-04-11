@@ -96,7 +96,14 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
     finally:
         _claude_proc = None
 
-    await proc.wait()
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=300)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        emit(EventType.CLAUDE_ERROR, error="Claude Code subprocess timed out (5 min)")
+        return "(Claude Code timed out after 5 minutes)"
+
     emit(EventType.CLAUDE_DONE, tool_count=tool_count)
 
     full = "\n".join(chunks) or "(no output)"

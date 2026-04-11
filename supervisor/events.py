@@ -4,9 +4,12 @@ Business logic modules (deepseek, claude, tools) call emit() with typed events.
 The UI layer subscribes and renders. No business logic file imports UI modules.
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 
 class EventType(Enum):
@@ -23,6 +26,7 @@ class EventType(Enum):
     CLAUDE_TEXT = auto()
     CLAUDE_TOOL = auto()
     CLAUDE_DONE = auto()
+    CLAUDE_ERROR = auto()
 
     # Non-claude tool execution
     TOOL_EXEC = auto()
@@ -61,4 +65,4 @@ def emit(event_type: EventType, **data) -> None:
         try:
             fn(event)
         except Exception:
-            pass  # UI errors must not crash business logic
+            logger.exception("Event subscriber %s raised an error", getattr(fn, "__name__", fn))

@@ -33,6 +33,7 @@ def load_project_instructions(project_dir: str) -> str | None:
 
 
 def get_api_key() -> str:
+    # Key is passed to AsyncOpenAI only; never logged or emitted via EventBus
     # 1. Environment variable (takes precedence)
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if key:

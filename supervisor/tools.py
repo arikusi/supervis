@@ -104,6 +104,14 @@ TOOLS = [
 
 _SKIP = {".git/", "__pycache__", "node_modules", ".venv", ".next"}
 
+_BLOCKED_PATTERNS = [
+    "rm -rf /", "rm -rf ~", "rm -rf $HOME",
+    "mkfs", "dd if=", "> /dev/sd", ">/dev/sd",
+    "shutdown", "reboot", "kill -9 1",
+    "chmod -R 777 /",
+    ":(){ :",  # fork bomb
+]
+
 
 def _read_file(path: str) -> str:
     try:
@@ -137,6 +145,11 @@ def _search_code(pattern: str, path: str = ".") -> str:
 
 
 def _run_shell(command: str) -> str:
+    cmd_lower = command.lower().strip()
+    for pattern in _BLOCKED_PATTERNS:
+        if pattern.lower() in cmd_lower:
+            return f"Error: command blocked for safety (matched: {pattern!r})"
+
     try:
         result = subprocess.run(
             command, shell=True, capture_output=True, text=True, timeout=15,
