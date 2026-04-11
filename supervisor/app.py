@@ -12,6 +12,7 @@ from .events import EventType, Event, subscribe, unsubscribe, emit
 from .commands import dispatch, get_help
 from .claude import get_proc, reset_session
 from .session import Session
+from .config import Config
 
 
 class SupervisApp(App):
@@ -39,7 +40,7 @@ class SupervisApp(App):
     }
     """
 
-    def __init__(self, project_dir: str, system_prompt: str, api_key: str = "", **kwargs) -> None:
+    def __init__(self, project_dir: str, system_prompt: str, config: Config | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self._project_dir = project_dir
         self._system_prompt = system_prompt
@@ -47,9 +48,19 @@ class SupervisApp(App):
         self._agent_running = False
         self._ctrl_c_count = 0
 
-        # Create session
-        client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-        self.session = Session(client=client)
+        # Create session from config
+        if config is None:
+            config = Config()
+        client = AsyncOpenAI(api_key=config.api_key, base_url="https://api.deepseek.com")
+        self.session = Session(
+            client=client,
+            model=config.model,
+            thinking=config.thinking,
+            max_cost=config.max_cost,
+            shell_timeout=config.shell_timeout,
+            claude_timeout=config.claude_timeout,
+            truncation_limit=config.truncation_limit,
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)

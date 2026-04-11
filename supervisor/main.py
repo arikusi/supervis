@@ -15,9 +15,13 @@ def main() -> None:
 
     os.chdir(project_dir)
 
-    # Resolve API key before Textual takes over the terminal
-    from .config import get_api_key, load_project_instructions
-    api_key = get_api_key()
+    # Load config (TOML, layered)
+    from .config import load_config, prompt_api_key, load_project_instructions
+    config = load_config(project_dir)
+
+    # Resolve API key if not in config or env
+    if not config.api_key:
+        config.api_key = prompt_api_key()
 
     # Build system prompt
     from .prompts import SYSTEM_PROMPT
@@ -28,7 +32,7 @@ def main() -> None:
 
     # Launch TUI
     from .app import SupervisApp
-    app = SupervisApp(project_dir=project_dir, system_prompt=system_prompt, api_key=api_key)
+    app = SupervisApp(project_dir=project_dir, system_prompt=system_prompt, config=config)
     app.run()
 
 
