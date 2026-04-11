@@ -2,6 +2,7 @@
 
 import asyncio
 
+from openai import AsyncOpenAI
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Header, Footer, Input, RichLog
@@ -10,7 +11,7 @@ from .widgets import OutputLog, InputBar, StatusBar
 from .events import EventType, Event, subscribe, unsubscribe, emit
 from .commands import dispatch, get_help
 from .claude import get_proc, reset_session
-from . import cost
+from .session import Session
 
 
 class SupervisApp(App):
@@ -38,14 +39,17 @@ class SupervisApp(App):
     }
     """
 
-    def __init__(self, project_dir: str, system_prompt: str) -> None:
-        super().__init__()
+    def __init__(self, project_dir: str, system_prompt: str, api_key: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
         self._project_dir = project_dir
         self._system_prompt = system_prompt
         self._user_queue: asyncio.Queue = asyncio.Queue()
-        self._interrupt_event = asyncio.Event()
         self._agent_running = False
         self._ctrl_c_count = 0
+
+        # Create session
+        client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        self.session = Session(client=client)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -148,8 +152,8 @@ class SupervisApp(App):
 
     def action_interrupt(self) -> None:
         if self._agent_running:
-            self._interrupt_event.set()
-            proc = get_proc()
+            self.session.interrupt_event.set()
+            proc = get_proc(self.session)
             if proc and proc.returncode is None:
                 proc.terminate()
             emit(EventType.INTERRUPT)
@@ -160,8 +164,8 @@ class SupervisApp(App):
     # ─── Slash command handlers ──────────────────────────────────────────
 
     def handle_reset(self) -> None:
-        reset_session()
-        cost.reset()
+        reset_session(self.session)
+        self.session.cost.reset()
         self._user_queue.put_nowait("__RESET__")
         log = self.query_one("#output", OutputLog)
         log.write_system("Session reset.")
@@ -180,7 +184,7 @@ class SupervisApp(App):
         from .orchestrator import orchestrate
         await orchestrate(
             message_queue=self._user_queue,
-            interrupt_event=self._interrupt_event,
+            session=self.session,
             system_prompt=self._system_prompt,
             set_agent_running=self._set_agent_running,
         )

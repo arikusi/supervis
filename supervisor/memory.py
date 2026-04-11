@@ -1,6 +1,10 @@
 """Conversation history management and summarization."""
 
-from openai import AsyncOpenAI
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .session import Session
 
 
 def _clean_for_summarize(messages: list) -> list:
@@ -16,27 +20,24 @@ def _clean_for_summarize(messages: list) -> list:
     return cleaned
 
 
-async def summarize_if_needed(
-    messages: list,
-    client: AsyncOpenAI,
-    threshold: int = 40,
-) -> list:
+async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
     """When history exceeds threshold, summarize older messages to save tokens."""
+    messages = session.messages
     user_msgs = [m for m in messages if m["role"] != "system"]
     if len(user_msgs) <= threshold:
-        return messages
+        return
 
     to_summarize = messages[1:-12]
     if not to_summarize:
-        return messages
+        return
 
     to_summarize = _clean_for_summarize(to_summarize)
 
     from .events import EventType, emit
     emit(EventType.SUMMARY)
     try:
-        resp = await client.chat.completions.create(
-            model="deepseek-chat",
+        resp = await session.client.chat.completions.create(
+            model=session.model,
             messages=[
                 {
                     "role": "system",
@@ -54,10 +55,10 @@ async def summarize_if_needed(
             max_tokens=600,
         )
         summary = resp.choices[0].message.content
-        return [
+        session.messages = [
             messages[0],
             {"role": "assistant", "content": f"[Session summary: {summary}]"},
             *messages[-12:],
         ]
     except Exception:
-        return messages
+        pass  # Keep original messages on failure

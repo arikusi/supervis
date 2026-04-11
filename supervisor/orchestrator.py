@@ -7,14 +7,15 @@ drives the DeepSeek agent loop, handles resets.
 import asyncio
 from typing import Callable
 
-from .deepseek import run_agent_loop, get_client
+from .deepseek import run_agent_loop
 from .memory import summarize_if_needed
+from .session import Session
 from .events import EventType, emit
 
 
 async def orchestrate(
     message_queue: asyncio.Queue,
-    interrupt_event: asyncio.Event,
+    session: Session,
     system_prompt: str,
     set_agent_running: Callable[[bool], None],
 ) -> None:
@@ -25,11 +26,9 @@ async def orchestrate(
     and repeats. Handles /reset via the __RESET__ sentinel.
     Only processes str items — ignores anything else (Textual internal events).
     """
-    messages = [{"role": "system", "content": system_prompt}]
-    client = get_client()
+    session.messages = [{"role": "system", "content": system_prompt}]
 
     while True:
-        # Wait for next user message, skip non-string items
         try:
             item = await message_queue.get()
         except asyncio.CancelledError:
@@ -42,7 +41,8 @@ async def orchestrate(
 
         # Handle reset sentinel
         if user_input == "__RESET__":
-            messages = [messages[0]]
+            session.reset()
+            session.messages = [{"role": "system", "content": system_prompt}]
             continue
 
         # Drain any additional queued string messages and combine
@@ -53,7 +53,8 @@ async def orchestrate(
                 if not isinstance(item, str):
                     continue
                 if item == "__RESET__":
-                    messages = [messages[0]]
+                    session.reset()
+                    session.messages = [{"role": "system", "content": system_prompt}]
                     continue
                 extra.append(item)
             except asyncio.QueueEmpty:
@@ -68,13 +69,13 @@ async def orchestrate(
         emit(EventType.QUEUE_UPDATE, count=0)
 
         # Add to conversation
-        messages.append({"role": "user", "content": user_input})
-        messages = await summarize_if_needed(messages, client)
-        interrupt_event.clear()
+        session.messages.append({"role": "user", "content": user_input})
+        await summarize_if_needed(session)
+        session.interrupt_event.clear()
 
         # Run agent loop
         set_agent_running(True)
         try:
-            messages = await run_agent_loop(messages, interrupt_event)
+            await run_agent_loop(session)
         finally:
             set_agent_running(False)

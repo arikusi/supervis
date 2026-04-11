@@ -3,25 +3,15 @@
 import asyncio
 import json
 from openai import AsyncOpenAI
-from .config import get_api_key
+from .session import Session
 from .tools import TOOLS, execute_tool
 from .events import EventType, emit
-from . import cost
-
-_client: AsyncOpenAI | None = None
 
 _RETRYABLE_CODES = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 3
 
 
-def get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(api_key=get_api_key(), base_url="https://api.deepseek.com")
-    return _client
-
-
-async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) -> tuple[str, list, str]:
+async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, str]:
     """
     Single DeepSeek API call with streaming.
     Returns (content, tool_calls, reasoning_content).
@@ -29,15 +19,27 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
     if not quiet:
         emit(EventType.DEEPSEEK_START)
 
-    response = await client.chat.completions.create(
-        model="deepseek-chat",
-        messages=messages,
+    # Strip reasoning_content from older turns before sending
+    session.strip_old_reasoning()
+
+    # Build API kwargs
+    kwargs = dict(
+        model=session.model,
+        messages=session.messages,
         tools=TOOLS,
         tool_choice="auto",
         stream=True,
-        stream_options={"include_usage": True},
-        extra_body={"thinking": {"type": "enabled"}},
     )
+
+    # stream_options for usage tracking
+    kwargs["stream_options"] = {"include_usage": True}
+
+    # Thinking mode: only for deepseek-chat when thinking=True
+    # deepseek-reasoner has thinking built-in, extra_body would be redundant
+    if session.model == "deepseek-chat" and session.thinking:
+        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+    response = await session.client.chat.completions.create(**kwargs)
 
     content = ""
     reasoning = ""
@@ -49,7 +51,7 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
         if chunk.usage:
             u = chunk.usage
             cached = getattr(u.prompt_tokens_details, "cached_tokens", 0) or 0
-            cost.record(u.prompt_tokens, u.completion_tokens, cached)
+            session.cost.record(u.prompt_tokens, u.completion_tokens, cached)
 
         choice = chunk.choices[0] if chunk.choices else None
         if not choice:
@@ -83,22 +85,28 @@ async def _api_call(client: AsyncOpenAI, messages: list, quiet: bool = False) ->
                     if tc.function.arguments:
                         tc_raw[i]["arguments"] += tc.function.arguments
 
-    emit(EventType.DEEPSEEK_DONE, cost=cost.summary())
+    emit(EventType.DEEPSEEK_DONE, cost=session.cost.summary())
 
     tool_calls = list(tc_raw.values())
     return content, tool_calls, reasoning
 
 
-async def stream_turn(messages: list, quiet: bool = False) -> tuple[str, list, str]:
+async def stream_turn(session: Session, quiet: bool = False) -> tuple[str, list, str]:
     """
     Send messages to DeepSeek with retry on transient errors.
     Returns (content, tool_calls, reasoning_content).
     """
-    client = get_client()
+    # Budget check before API call
+    ok, warning = session.check_budget()
+    if not ok:
+        emit(EventType.DEEPSEEK_ERROR, error=warning)
+        return "", [], ""
+    if warning:
+        emit(EventType.STATUS, text=warning)
 
     for attempt in range(_MAX_RETRIES):
         try:
-            return await _api_call(client, messages, quiet=quiet)
+            return await _api_call(session, quiet=quiet)
         except Exception as e:
             status = getattr(e, "status_code", None) or getattr(e, "code", None)
             if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
@@ -111,17 +119,16 @@ async def stream_turn(messages: list, quiet: bool = False) -> tuple[str, list, s
     return "", [], ""
 
 
-async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None = None) -> list:
+async def run_agent_loop(session: Session) -> None:
     """
     Agentic loop: keep calling DeepSeek + executing tools until
     DeepSeek stops making tool calls.
-    Returns updated messages list.
     """
     turn = 0
     while True:
         try:
             content, tool_calls, reasoning = await stream_turn(
-                messages, quiet=(turn > 0),
+                session, quiet=(turn > 0),
             )
         except Exception as e:
             emit(EventType.DEEPSEEK_ERROR, error=str(e))
@@ -141,14 +148,14 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
                 }
                 for tc in tool_calls
             ]
-        messages.append(msg)
+        session.messages.append(msg)
 
         if not tool_calls:
             break
 
-        if interrupt_event and interrupt_event.is_set():
+        if session.interrupt_event.is_set():
             for tc in tool_calls:
-                messages.append({
+                session.messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "content": "(interrupted by user)",
@@ -157,15 +164,15 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
 
         executed_ids: set[str] = set()
         for tc in tool_calls:
-            if interrupt_event and interrupt_event.is_set():
+            if session.interrupt_event.is_set():
                 break
             try:
                 args = json.loads(tc["arguments"]) if tc["arguments"] else {}
             except json.JSONDecodeError:
                 args = {}
 
-            result = await execute_tool(tc["name"], args)
-            messages.append({
+            result = await execute_tool(tc["name"], args, session)
+            session.messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
                 "content": str(result),
@@ -174,10 +181,8 @@ async def run_agent_loop(messages: list, interrupt_event: asyncio.Event | None =
 
         for tc in tool_calls:
             if tc["id"] not in executed_ids:
-                messages.append({
+                session.messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "content": "(interrupted by user)",
                 })
-
-    return messages

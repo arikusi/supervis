@@ -5,23 +5,33 @@ import json
 import os
 from .events import EventType, emit
 
-_claude_proc: asyncio.subprocess.Process | None = None
+# Module-level fallback for backward compat (used when no session passed)
 _claude_first = True
 
 
-def get_proc() -> asyncio.subprocess.Process | None:
-    return _claude_proc
-
-
-def reset_session() -> None:
+def reset_session(session=None) -> None:
     global _claude_first
-    _claude_first = True
+    if session:
+        session.claude_first = True
+    else:
+        _claude_first = True
 
 
-async def run_claude(prompt: str, continue_session: bool = True) -> str:
-    global _claude_proc, _claude_first
+def get_proc(session=None) -> asyncio.subprocess.Process | None:
+    if session:
+        return session.claude_proc
+    return None
+
+
+async def run_claude(prompt: str, continue_session: bool = True, session=None) -> str:
+    global _claude_first
 
     emit(EventType.CLAUDE_START, prompt=prompt)
+
+    # Determine first-call state
+    is_first = session.claude_first if session else _claude_first
+    timeout = session.claude_timeout if session else 300
+    truncation = session.truncation_limit if session else 4000
 
     cmd = [
         "claude", "-p", prompt,
@@ -29,9 +39,14 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
         "--verbose",
         "--permission-mode", "bypassPermissions",
     ]
-    if continue_session and not _claude_first:
+    if continue_session and not is_first:
         cmd.append("--continue")
-    _claude_first = False
+
+    # Mark first call as done
+    if session:
+        session.claude_first = False
+    else:
+        _claude_first = False
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -40,7 +55,8 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
         cwd=os.getcwd(),
         limit=1024 * 1024 * 10,
     )
-    _claude_proc = proc
+    if session:
+        session.claude_proc = proc
 
     chunks: list[str] = []
     tool_count = 0
@@ -94,20 +110,20 @@ async def run_claude(prompt: str, continue_session: bool = True) -> str:
         proc.terminate()
         raise
     finally:
-        _claude_proc = None
+        if session:
+            session.claude_proc = None
 
     try:
-        await asyncio.wait_for(proc.wait(), timeout=300)
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        emit(EventType.CLAUDE_ERROR, error="Claude Code subprocess timed out (5 min)")
-        return "(Claude Code timed out after 5 minutes)"
+        emit(EventType.CLAUDE_ERROR, error=f"Claude Code subprocess timed out ({timeout // 60} min)")
+        return f"(Claude Code timed out after {timeout // 60} minutes)"
 
     emit(EventType.CLAUDE_DONE, tool_count=tool_count)
 
     full = "\n".join(chunks) or "(no output)"
-    max_len = 4000
-    if len(full) > max_len:
-        return full[:max_len] + f"\n... (truncated, {len(full)} chars total)"
+    if len(full) > truncation:
+        return full[:truncation] + f"\n... (truncated, {len(full)} chars total)"
     return full

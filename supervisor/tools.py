@@ -144,7 +144,7 @@ def _search_code(pattern: str, path: str = ".") -> str:
         return f"Error: {e}"
 
 
-def _run_shell(command: str) -> str:
+def _run_shell(command: str, timeout: int = 15) -> str:
     cmd_lower = command.lower().strip()
     for pattern in _BLOCKED_PATTERNS:
         if pattern.lower() in cmd_lower:
@@ -152,7 +152,7 @@ def _run_shell(command: str) -> str:
 
     try:
         result = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=15,
+            command, shell=True, capture_output=True, text=True, timeout=timeout,
         )
         out = (result.stdout + result.stderr).strip()
         return out[:3000] if out else "(no output)"
@@ -182,9 +182,9 @@ _TOOL_LABELS = {
 }
 
 
-async def execute_tool(name: str, args: dict) -> str:
+async def execute_tool(name: str, args: dict, session=None) -> str:
     if name == "run_claude":
-        return await run_claude(args["prompt"], args.get("continue_session", True))
+        return await run_claude(args["prompt"], args.get("continue_session", True), session=session)
 
     label_fn = _TOOL_LABELS.get(name)
     if label_fn:
@@ -200,6 +200,7 @@ async def execute_tool(name: str, args: dict) -> str:
         case "get_git_status":
             return _get_git_status()
         case "run_shell":
-            return _run_shell(args["command"])
+            timeout = session.shell_timeout if session else 15
+            return _run_shell(args["command"], timeout=timeout)
         case _:
             return f"Unknown tool: {name}"
