@@ -22,11 +22,12 @@
 
 * Breaks your request into steps and sends each one to Claude Code
 * Keeps going until the full task is done, not just one step
-* Uses DeepSeek V3.2 with thinking mode for better planning and reasoning
+* Switch between DeepSeek models on the fly: chat (thinking), chat-fast, reasoner
 * Full TUI with scrollable output, fixed input, and live status bar
 * Watch Claude Code work in real time — every tool call, every file edit
 * Type while the agent works — messages queue automatically
-* Only asks you when there's a real decision to make
+* TOML config with global + per-project layers, env var overrides
+* Cost budget tracking with warnings and hard limits
 * Reads `.supervis/SUPERVIS.md` for project-specific instructions
 
 ## Install
@@ -59,6 +60,51 @@ DeepSeek: JWT auth done. Moving to route protection...  [$0.003]
 You: actually make it session-based    ← typed while agent was working, queued
 ```
 
+## Configuration
+
+supervis uses TOML config files with layered resolution:
+
+1. **Defaults** (built-in)
+2. **Global config:** `~/.config/supervis/config.toml`
+3. **Project config:** `.supervis/config.toml` (overrides global)
+4. **Environment variables** (highest priority)
+
+Example `~/.config/supervis/config.toml`:
+
+```toml
+api_key = "sk-..."
+model = "deepseek-chat"
+thinking = true
+
+[behavior]
+max_cost = 1.00
+shell_timeout = 15
+claude_timeout = 300
+truncation_limit = 4000
+```
+
+Environment variable overrides: `DEEPSEEK_API_KEY`, `SUPERVIS_MODEL`, `SUPERVIS_THINKING`.
+
+If you have an old flat config file, it auto-migrates to TOML on first run.
+
+## Model Switching
+
+Switch models mid-session with `/model`:
+
+| Profile | Model | Thinking | Max Output |
+|---------|-------|----------|------------|
+| `chat` | deepseek-chat | enabled | 8K tokens |
+| `chat-fast` | deepseek-chat | disabled | 8K tokens |
+| `reasoner` | deepseek-reasoner | built-in | 64K tokens |
+
+```
+/model chat-fast     switch to fast mode
+/model reasoner      switch to reasoner
+/model               show current model
+```
+
+You can also set the default in config: `model = "deepseek-chat"` and `thinking = true`.
+
 ## Project Instructions
 
 Create `.supervis/SUPERVIS.md` in your project root to give supervis context:
@@ -87,7 +133,25 @@ Contents are injected into DeepSeek's system prompt on startup.
 | Command | Description |
 |---------|-------------|
 | `/reset` | Reset Claude session and conversation history |
+| `/model` | Switch model: `/model chat \| chat-fast \| reasoner` |
+| `/status` | Show session info (model, cost, uptime, messages) |
+| `/config` | Show current configuration |
+| `/budget` | Show cost vs. budget limit |
+| `/export` | Export conversation: `/export md \| json` |
+| `/undo` | Undo last changes (git stash or revert) |
+| `/update` | Check PyPI for new supervis version |
 | `/help` | Show available commands |
+
+## Cost Budget
+
+Set `max_cost` in your config to cap spending per session:
+
+```toml
+[behavior]
+max_cost = 1.00
+```
+
+supervis warns at 80% and stops sending requests at 100%. Check anytime with `/budget`.
 
 ## API Key
 
@@ -98,7 +162,7 @@ No DeepSeek API key found.
 Get one at: https://platform.deepseek.com/api-keys
 
 Enter your API key: sk-...
-Saved to ~/.config/supervis/config
+Saved to ~/.config/supervis/config.toml
 ```
 
 Or set it yourself (takes precedence):
@@ -118,7 +182,7 @@ DeepSeek uses [DeepSeek V3.2](https://platform.deepseek.com) with thinking mode 
 
 ## Architecture
 
-supervis uses an event-driven architecture. Business logic (DeepSeek API, Claude subprocess, tools) emits typed events through an EventBus. The Textual TUI subscribes and renders. No business logic imports UI code.
+Event-driven design. Business logic (DeepSeek API, Claude subprocess, tools) emits typed events through an EventBus. The Textual TUI subscribes and renders. No business logic imports UI code.
 
 ```
 supervisor/
@@ -126,14 +190,16 @@ supervisor/
   orchestrator.py  — async message loop, drives the agent
   deepseek.py      — DeepSeek API client, streaming, agent loop
   claude.py        — Claude Code subprocess, stream-json parsing
+  session.py       — Session + CostTracker dataclasses
   events.py        — EventBus + typed event definitions
-  commands.py      — slash command registry (/reset, /help)
+  commands.py      — slash command registry (/reset, /model, /status, /config, /export, /undo, /budget, /update)
   tools.py         — tool definitions for DeepSeek
   widgets/         — OutputLog, InputBar, StatusBar
-  config.py        — API key + project instructions
-  cost.py          — token and cost tracking
+  config.py        — TOML config system (global + per-project + env vars)
+  cost.py          — token tracking (backward compat wrapper)
   memory.py        — conversation summarization
   prompts.py       — DeepSeek system prompt
+  version_check.py — PyPI update checker
 ```
 
 ## Cost

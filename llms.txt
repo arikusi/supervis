@@ -1,17 +1,19 @@
 # supervis
 
-> DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Full TUI with live output, message queuing, and project-aware configuration.
+> DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. TOML config, model switching, cost budgets, full TUI with live output and message queuing.
 
 ## Docs
 
-* [README](https://github.com/arikusi/supervis/blob/main/README.md) — install, usage, architecture
+* [README](https://github.com/arikusi/supervis/blob/main/README.md) — install, usage, config, model switching, architecture
 * [Changelog](https://github.com/arikusi/supervis/blob/main/CHANGELOG.md) — version history
 * [Full docs (single file)](https://github.com/arikusi/supervis/blob/main/llms-full.txt) — everything in one context-window-friendly file
 * [PyPI](https://pypi.org/project/supervis/) — package page
 
 ## Overview
 
-supervis is a TUI tool that uses DeepSeek V3.2 (with thinking mode) as a supervisor to orchestrate Claude Code. You describe what you want, DeepSeek breaks it into steps, sends each step to Claude Code, and keeps going until the task is complete. Watch Claude work in real time. Type while the agent works. Project-specific instructions via `.supervis/SUPERVIS.md`.
+supervis is a TUI tool that uses DeepSeek (V3.2 or Reasoner) as a supervisor to orchestrate Claude Code. You describe what you want, DeepSeek breaks it into steps, sends each step to Claude Code, and keeps going until the task is complete. Watch Claude work in real time. Type while the agent works.
+
+Configuration is TOML-based with global, per-project, and env var layers. Switch between `deepseek-chat` (with or without thinking) and `deepseek-reasoner` mid-session. Set cost budgets to cap spending. Export conversations to markdown or JSON.
 
 ## Quick start
 

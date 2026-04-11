@@ -1,10 +1,12 @@
 # supervis — full documentation
 
-DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 1.0.0.
+DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 1.1.0.
 
 ## What it is
 
-supervis is a TUI tool that sits between you and Claude Code. Instead of writing prompts for Claude Code yourself, you tell supervis what you want and DeepSeek V3.2 (with thinking mode) manages the entire execution: planning steps, sending tasks to Claude Code, verifying results, and continuing until the job is done. You watch it all happen in real time.
+supervis is a TUI tool that sits between you and Claude Code. Instead of writing prompts for Claude Code yourself, you tell supervis what you want and DeepSeek manages the entire execution: planning steps, sending tasks to Claude Code, verifying results, and continuing until the job is done. You watch it all happen in real time.
+
+You can choose between three model profiles (deepseek-chat with thinking, deepseek-chat without thinking, and deepseek-reasoner) and switch mid-session. Configuration is TOML-based with global, per-project, and environment variable layers. Cost budgets let you cap session spending.
 
 ## Install
 
@@ -26,13 +28,145 @@ supervis
 
 Type your request. DeepSeek plans the approach using thinking mode, then sends steps to Claude Code one by one. You can type while the agent works — messages queue and are processed after the current step.
 
+On startup, supervis does a non-blocking check against PyPI and notifies you if a newer version is available.
+
 ## TUI Layout
 
 supervis uses a Textual-based terminal UI with three sections:
 
 * **Output area** (top, scrollable): Shows DeepSeek's responses, Claude Code's live output (text + tool calls), system messages, and cost tracking.
-* **Status bar** (middle): Shows thinking state, queued message count, and cumulative cost.
+* **Status bar** (middle): Shows thinking state, current model, queued message count, and cumulative cost.
 * **Input bar** (bottom): Fixed input field. Type anytime, even while the agent works.
+
+## Configuration
+
+supervis uses TOML config files with layered resolution. Each layer overrides the previous:
+
+1. Built-in defaults
+2. Global config: `~/.config/supervis/config.toml`
+3. Project config: `.supervis/config.toml`
+4. Environment variables (highest priority)
+
+### Config file format
+
+```toml
+api_key = "sk-..."
+model = "deepseek-chat"
+thinking = true
+
+[behavior]
+max_cost = 1.00
+shell_timeout = 15
+claude_timeout = 300
+truncation_limit = 4000
+```
+
+All settings can also be written as flat keys (without the `[behavior]` section) for convenience.
+
+### Available settings
+
+* `api_key` — DeepSeek API key
+* `model` — default model (`deepseek-chat` or `deepseek-reasoner`)
+* `thinking` — enable thinking mode for deepseek-chat (true/false)
+* `max_cost` — session cost limit in USD. Warns at 80%, stops at 100%.
+* `shell_timeout` — seconds before shell commands time out (default: 15)
+* `claude_timeout` — seconds before Claude Code subprocess is killed (default: 300)
+* `truncation_limit` — max characters from Claude output sent to DeepSeek (default: 4000)
+
+### Environment variable overrides
+
+* `DEEPSEEK_API_KEY` — API key (overrides config file)
+* `SUPERVIS_MODEL` — model name (overrides config file)
+* `SUPERVIS_THINKING` — "true"/"false"/"1"/"0" (overrides config file)
+
+### Migration
+
+If you have an old flat config at `~/.config/supervis/config`, it auto-migrates to `config.toml` on first run. The old file is preserved.
+
+### First-run setup
+
+If no API key is found in config or env, supervis prompts interactively:
+
+```
+No DeepSeek API key found.
+Get one at: https://platform.deepseek.com/api-keys
+
+Enter your API key: sk-...
+Saved to ~/.config/supervis/config.toml
+```
+
+## Model switching
+
+Switch models mid-session with `/model`:
+
+* `chat` — deepseek-chat with thinking enabled, 8K max output. Good balance of planning and speed.
+* `chat-fast` — deepseek-chat without thinking. Faster responses, less planning overhead.
+* `reasoner` — deepseek-reasoner. Thinking is built into the model, 64K max output. Best for complex multi-step reasoning.
+
+```
+/model chat-fast     switch to fast mode
+/model reasoner      switch to reasoner
+/model               show current model
+```
+
+Set the default in config with `model` and `thinking` keys. The `/model` command overrides the default for the current session only.
+
+## Project instructions (.supervis/)
+
+Create `.supervis/SUPERVIS.md` in your project root:
+
+```markdown
+Tech stack: Next.js 15, TypeScript, PostgreSQL.
+Follow the plan in PLAN.md.
+Run `npm run build` after changes.
+```
+
+Contents are injected into DeepSeek's system prompt on startup.
+
+You can also place a `config.toml` in `.supervis/` for per-project settings (different model, cost limit, etc.).
+
+## Controls
+
+* Ctrl+Z: Interrupt the running agent
+* Ctrl+Q: Quit
+* exit/quit/q: Quit
+
+## Commands
+
+* `/reset` — Reset Claude Code session and conversation history
+* `/model` — Switch model: `/model chat | chat-fast | reasoner`
+* `/status` — Show session info (model, cost, uptime, message count)
+* `/config` — Show current configuration values
+* `/budget` — Show cost vs. budget limit
+* `/export` — Export conversation: `/export md | json`
+* `/undo` — Undo last changes (git stash if uncommitted, git revert if committed)
+* `/update` — Check PyPI for new supervis version
+* `/help` — Show available commands
+
+Commands are extensible via the registry in `commands.py` using the `@register` decorator.
+
+## Cost tracking
+
+Shown in the status bar and after each DeepSeek response:
+```
+in 12.3k  4.1k cached · out 0.8k · $0.0031
+```
+
+DeepSeek V3.2 pricing:
+* Input: $0.28/1M tokens
+* Input (cache hit): $0.028/1M tokens
+* Output: $0.42/1M tokens
+
+### Cost budget
+
+Set `max_cost` in config (global or per-project) to limit session spending:
+
+```toml
+[behavior]
+max_cost = 1.00
+```
+
+At 80% usage, supervis prints a warning. At 100%, it stops sending requests to DeepSeek. Check your budget anytime with `/budget`.
 
 ## Architecture
 
@@ -55,71 +189,37 @@ supervisor/
   orchestrator.py  — Pure async orchestrator, reads from queue, drives agent loop
   deepseek.py      — DeepSeek API client, streaming with retry, agentic tool loop
   claude.py        — Claude Code subprocess management, stream-json parsing
+  session.py       — Session + CostTracker dataclasses (replaces module-level globals)
   events.py        — EventBus singleton with typed event dataclasses
   commands.py      — Slash command registry with decorator-based registration
   tools.py         — Tool definitions and implementations for DeepSeek
+  version_check.py — Non-blocking PyPI update checker
   widgets/
     output_log.py  — RichLog subclass with semantic write methods
     input_bar.py   — Input subclass (Textual default behavior)
     status_bar.py  — Static widget with reactive properties
-  config.py        — API key resolution + project instructions loading
-  cost.py          — Token counting and cost calculation
+  config.py        — TOML config system: load, merge, migrate, env overrides
+  cost.py          — Token counting (backward compat wrapper, delegates to CostTracker)
   memory.py        — Conversation summarization when history grows
   prompts.py       — DeepSeek system prompt
 ```
 
-## Project instructions (.supervis/)
+### Session state
 
-Create `.supervis/SUPERVIS.md` in your project root:
+The `Session` dataclass holds all mutable state for one supervisor run: the OpenAI client, message history, cost tracker, interrupt event, model config, and limits. This replaced scattered module-level globals from earlier versions.
 
-```markdown
-Tech stack: Next.js 15, TypeScript, PostgreSQL.
-Follow the plan in PLAN.md.
-Run `npm run build` after changes.
-```
-
-Contents are injected into DeepSeek's system prompt on startup.
-
-## Configuration
-
-API key resolution order:
-1. `DEEPSEEK_API_KEY` environment variable
-2. `~/.config/supervis/config` file
-3. Interactive prompt on first run
-
-The config file stores `DEEPSEEK_API_KEY=sk-...` with 600 permissions.
-
-## Controls
-
-* Ctrl+Z: Interrupt the running agent
-* Ctrl+Q: Quit
-* exit/quit/q: Quit
-
-## Commands
-
-* /reset: Reset Claude Code session and conversation history
-* /help: Show available commands
-
-Commands are extensible via the registry in `commands.py`.
-
-## Cost tracking
-
-Shown in the status bar and after each DeepSeek response:
-```
-in 12.3k  4.1k cached · out 0.8k · $0.0031
-```
-
-DeepSeek V3.2 pricing (March 2026):
-* Input: $0.28/1M tokens
-* Input (cache hit): $0.028/1M tokens
-* Output: $0.42/1M tokens
+`CostTracker` is a separate dataclass that handles token counting and cost calculation with DeepSeek V3.2 pricing.
 
 ## Error handling
 
 * DeepSeek API errors (429 rate limit, 5xx server errors) retry up to 3 times with exponential backoff.
 * Interrupted tool calls get placeholder results so the message history stays valid.
-* Claude Code output truncated to 4000 chars before sending to DeepSeek (full output displayed in TUI).
+* Claude Code output truncated to `truncation_limit` chars before sending to DeepSeek (full output displayed in TUI).
+* Claude Code subprocess killed after `claude_timeout` seconds (default 300) if hanging.
 * Conversation history summarized when it exceeds 40 messages.
+* Event subscriber errors are logged instead of silently swallowed.
+* Dangerous shell commands (`rm -rf /`, `mkfs`, etc.) are blocked before execution.
+* `reasoning_content` from older turns is stripped before API calls (DeepSeek requirement).
 
 ## DeepSeek tools
 
@@ -127,7 +227,7 @@ DeepSeek V3.2 pricing (March 2026):
 * **read_file**: Read a single file (rarely needed)
 * **list_files**: Glob pattern file listing
 * **search_code**: Grep-style code search
-* **run_shell**: Quick shell commands
+* **run_shell**: Quick shell commands (with blocklist for dangerous operations)
 * **get_git_status**: Git status + recent commits
 
 ## License

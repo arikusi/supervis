@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.1.0 (2026-04-12)
+
+### Added
+
+* **TOML config system.** Layered configuration: `~/.config/supervis/config.toml` (global) + `.supervis/config.toml` (per-project) + environment variable overrides. Settings: `api_key`, `model`, `thinking`, `max_cost`, `shell_timeout`, `claude_timeout`, `truncation_limit`. Env var overrides: `DEEPSEEK_API_KEY`, `SUPERVIS_MODEL`, `SUPERVIS_THINKING`. Old flat config files auto-migrate.
+* **Model switching.** `/model` command with three profiles: `chat` (deepseek-chat + thinking, 8K output), `chat-fast` (deepseek-chat, no thinking, faster), `reasoner` (deepseek-reasoner, thinking built-in, 64K output). Switch mid-session without restarting.
+* **Cost budget.** Set `max_cost` in config to cap session spending. Warns at 80%, stops requests at 100%.
+* **New commands:** `/status` (session info), `/config` (show config), `/export md|json` (export conversation), `/undo` (git stash/revert), `/budget` (cost vs. limit), `/update` (check PyPI for updates).
+* **Version update checker.** Non-blocking PyPI check on startup. Shows a notification if a newer version is available.
+* **Session class.** New `Session` + `CostTracker` dataclasses replace module-level globals across the codebase. Cleaner state management.
+* **Shell command blocklist.** Dangerous commands (`rm -rf /`, `mkfs`, etc.) are blocked before execution.
+
+### Changed
+
+* **CI expanded.** Added ruff linting, mypy type checking, Python 3.10 through 3.13 matrix testing.
+* **Summarization format.** Uses clean markdown instead of Python repr for conversation summaries.
+* **requirements.txt** now includes textual as an explicit dependency.
+
+### Fixed
+
+* **reasoning_content bug.** Older assistant turns had `reasoning_content` left in, causing DeepSeek API errors. Now stripped from previous turns before each API call.
+* **Subprocess timeout.** Claude Code processes are killed after 5 minutes if they hang, instead of blocking the session indefinitely.
+* **Silent error swallowing.** Event subscriber errors were silently discarded. Now logged so broken subscribers don't disappear into the void.
+
+### Removed
+
+* **display.py.** Dead code from the pre-TUI era. All formatting now handled by Textual widgets.
+
 ## 1.0.1 — 2026-03-29
 
 ### Fixed
