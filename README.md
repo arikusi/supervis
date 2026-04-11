@@ -7,6 +7,7 @@
   <a href="https://pepy.tech/projects/supervis"><img src="https://static.pepy.tech/badge/supervis" alt="PyPI downloads"></a>
   <a href="https://pypi.org/project/supervis/"><img src="https://img.shields.io/pypi/pyversions/supervis" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://deepwiki.com/arikusi/supervis"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   <a href="https://github.com/arikusi/supervis"><img src="https://img.shields.io/github/stars/arikusi/supervis" alt="GitHub stars"></a>
 </p>
 
