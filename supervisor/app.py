@@ -76,6 +76,7 @@ class SupervisApp(App):
         log.write_system("Ctrl+Z = interrupt agent · Ctrl+Q = quit · /help for commands")
         self.query_one("#input", InputBar).focus()
         self.run_worker(self._run_orchestrator(), exclusive=True)
+        self.run_worker(self._check_update())
 
     def on_unmount(self) -> None:
         unsubscribe(self._on_event)
@@ -189,6 +190,14 @@ class SupervisApp(App):
         log.write_help(entries)
 
     # ─── Orchestrator ────────────────────────────────────────────────────
+
+    async def _check_update(self) -> None:
+        """Non-blocking version check on startup."""
+        from .version_check import check_for_update
+        latest = await check_for_update()
+        if latest:
+            from . import __version__
+            emit(EventType.STATUS, text=f"Update available: supervis {latest} (you have {__version__}). Run: pipx upgrade supervis")
 
     async def _run_orchestrator(self) -> None:
         """Main agent loop. Runs as a Textual worker."""

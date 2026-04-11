@@ -223,6 +223,21 @@ def _cmd_undo(app, args: str) -> None:
 
 # ─── Budget ──────────────────────────────────────────────────────────────────
 
+@register("update", "Check for supervis updates")
+def _cmd_update(app, args: str) -> None:
+    from .widgets import OutputLog
+    from .version_check import check_for_update_sync
+    log = app.query_one("#output", OutputLog)
+
+    log.write_system("Checking for updates...")
+    current, latest = check_for_update_sync()
+    if latest:
+        log.write_system(f"Update available: supervis {latest} (you have {current})")
+        log.write_system("Run: pipx upgrade supervis")
+    else:
+        log.write_system(f"supervis {current} is up to date.")
+
+
 @register("budget", "Show cost budget status")
 def _cmd_budget(app, args: str) -> None:
     from .widgets import OutputLog
