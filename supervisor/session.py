@@ -88,6 +88,12 @@ class Session:
             return True, f"Budget warning: ${current:.4f} / ${self.max_cost:.2f} ({ratio:.0%})"
         return True, ""
 
+    def switch_model(self, model: str, thinking: bool) -> None:
+        """Switch DeepSeek model. Resets Claude session for fresh context."""
+        self.model = model
+        self.thinking = thinking
+        self.claude_first = True
+
     def strip_old_reasoning(self) -> None:
         """Strip reasoning_content from older assistant messages.
 

@@ -20,6 +20,34 @@ def _clean_for_summarize(messages: list) -> list:
     return cleaned
 
 
+def _format_messages_for_summary(messages: list) -> str:
+    """Format messages as clean markdown for the summarizer.
+
+    Replaces the old str(messages)[:8000] approach which sent Python repr
+    of nested dicts — unreadable for the LLM.
+    """
+    parts = []
+    for m in messages:
+        role = m.get("role", "unknown")
+        content = m.get("content", "") or ""
+
+        if role == "assistant":
+            tool_calls = m.get("tool_calls", [])
+            if tool_calls:
+                tools = ", ".join(
+                    tc.get("function", {}).get("name", "?") for tc in tool_calls
+                )
+                parts.append(f"**Assistant** (called: {tools}): {content or '(tools only)'}")
+            elif content:
+                parts.append(f"**Assistant**: {content}")
+        elif role == "tool":
+            parts.append(f"**Tool result**: {content[:500]}")
+        elif role == "user":
+            parts.append(f"**User**: {content}")
+
+    return "\n\n".join(parts)[:12000]
+
+
 async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
     """When history exceeds threshold, summarize older messages to save tokens."""
     messages = session.messages
@@ -49,7 +77,7 @@ async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
                 },
                 {
                     "role": "user",
-                    "content": str(to_summarize)[:8000],
+                    "content": _format_messages_for_summary(to_summarize),
                 },
             ],
             max_tokens=600,

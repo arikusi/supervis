@@ -1,4 +1,4 @@
-"""Status bar showing queue count, cost, and thinking state."""
+"""Status bar showing model, queue count, cost, and thinking state."""
 
 from textual.reactive import reactive
 from textual.widgets import Static
@@ -19,9 +19,13 @@ class StatusBar(Static):
     queue_count: reactive[int] = reactive(0)
     thinking: reactive[bool] = reactive(False)
     cost_text: reactive[str] = reactive("")
+    model_text: reactive[str] = reactive("")
 
     def render(self) -> str:
         parts = []
+
+        if self.model_text:
+            parts.append(f"[bold]{self.model_text}[/]")
 
         if self.thinking:
             parts.append("[bold cyan]thinking[/]")
