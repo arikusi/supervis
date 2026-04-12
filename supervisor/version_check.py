@@ -15,7 +15,7 @@ def _fetch_latest() -> str | None:
     try:
         with urlopen(_PYPI_URL, timeout=5) as resp:
             info = json.loads(resp.read())
-            return info["info"]["version"]
+            return str(info["info"]["version"])
     except (URLError, KeyError, json.JSONDecodeError, OSError):
         return None
 

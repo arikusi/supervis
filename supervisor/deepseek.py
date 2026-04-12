@@ -22,24 +22,21 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
     # Strip reasoning_content from older turns before sending
     session.strip_old_reasoning()
 
-    # Build API kwargs
-    kwargs = dict(
+    # Thinking mode: only for deepseek-chat when thinking=True
+    # deepseek-reasoner has thinking built-in, extra_body would be redundant
+    extra_body = None
+    if session.model == "deepseek-chat" and session.thinking:
+        extra_body = {"thinking": {"type": "enabled"}}
+
+    response = await session.client.chat.completions.create(  # type: ignore[call-overload]
         model=session.model,
         messages=session.messages,
         tools=TOOLS,
         tool_choice="auto",
         stream=True,
+        stream_options={"include_usage": True},
+        extra_body=extra_body,
     )
-
-    # stream_options for usage tracking
-    kwargs["stream_options"] = {"include_usage": True}
-
-    # Thinking mode: only for deepseek-chat when thinking=True
-    # deepseek-reasoner has thinking built-in, extra_body would be redundant
-    if session.model == "deepseek-chat" and session.thinking:
-        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-
-    response = await session.client.chat.completions.create(**kwargs)
 
     content = ""
     reasoning = ""

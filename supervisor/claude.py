@@ -18,7 +18,8 @@ def reset_session(session=None) -> None:
         _claude_first = True
 
 
-def get_proc(session=None) -> asyncio.subprocess.Process | None:
+def get_proc(session=None):  # type: ignore[no-untyped-def]
+    """Return the running Claude subprocess, if any."""
     if session:
         return session.claude_proc
     return None
@@ -67,6 +68,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     tool_count = 0
 
     try:
+        assert proc.stdout is not None
         async for raw in proc.stdout:
             line = raw.decode("utf-8", errors="replace").strip()
             if not line:

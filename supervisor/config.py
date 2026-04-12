@@ -34,10 +34,11 @@ class Config:
     truncation_limit: int = 4000
 
 
-def _read_toml(path: Path) -> dict:
+def _read_toml(path: Path) -> dict:  # type: ignore[type-arg]
     """Read a TOML file, return empty dict if missing or broken."""
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        result: dict = tomllib.loads(path.read_text(encoding="utf-8"))  # type: ignore[type-arg]
+        return result
     except (FileNotFoundError, PermissionError, tomllib.TOMLDecodeError):
         return {}
 
