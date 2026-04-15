@@ -66,6 +66,17 @@ def _cmd_help(app, args: str) -> None:
     app.handle_help()
 
 
+@register("reasoning", "Toggle reasoning/thinking display on/off")
+def _cmd_reasoning(app, args: str) -> None:
+    from .widgets import OutputLog
+
+    log = app.query_one("#output", OutputLog)
+    session = app.session
+    session.show_reasoning = not session.show_reasoning
+    state = "on" if session.show_reasoning else "off"
+    log.write_system(f"Reasoning display: {state}")
+
+
 # ─── Model switching ─────────────────────────────────────────────────────────
 
 _MODEL_PROFILES = {
@@ -243,6 +254,36 @@ def _cmd_update(app, args: str) -> None:
         log.write_system("Run: pipx upgrade supervis")
     else:
         log.write_system(f"supervis {current} is up to date.")
+
+
+@register("queue", "Show queued messages")
+def _cmd_queue(app, args: str) -> None:
+    from .widgets import OutputLog
+
+    log = app.query_one("#output", OutputLog)
+    items = app._user_queue.pending()
+    if not items:
+        log.write_system("No queued messages.")
+        return
+    for i, msg in enumerate(items):
+        log.write_system(f"  [{i}] {msg[:80]}")
+
+
+@register("cancel", "Cancel queued messages: /cancel [index]")
+def _cmd_cancel(app, args: str) -> None:
+    from .widgets import OutputLog
+
+    log = app.query_one("#output", OutputLog)
+    import contextlib
+
+    index = None
+    with contextlib.suppress(ValueError):
+        index = int(args.strip()) if args.strip() else None
+    result = app._user_queue.cancel(index)
+    log.write_system(result)
+    from .events import EventType, emit
+
+    emit(EventType.QUEUE_UPDATE, count=app._user_queue.qsize)
 
 
 @register("budget", "Show cost budget status")

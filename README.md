@@ -21,9 +21,13 @@ supervis puts [DeepSeek](https://platform.deepseek.com) between you and Claude C
 
 ## Demo
 
+One prompt. supervis took it from there: planned the approach, had Claude Code scaffold the project, build the UI, write the logic, run the build, and deploy to Cloudflare Pages. No human intervention between start and live URL.
+
 <p align="center">
   <img src="assets/demo.svg" alt="supervis demo" width="100%">
 </p>
+
+**Result:** [markdown-notes-31o.pages.dev](https://markdown-notes-31o.pages.dev/) · [source code](https://github.com/arikusi/markdown-notes) · *Full screenshots in [assets/](assets/) (demo_1 through demo_7)*
 
 ## How supervis works
 
@@ -150,9 +154,12 @@ You tell supervis what you want. supervis tells Claude Code how to build it.
 | `/export md` or `json` | Export conversation to file |
 | `/undo` | Git stash or revert last changes |
 | `/update` | Check for new supervis version |
+| `/reasoning` | Toggle DeepSeek thinking/reasoning display |
+| `/queue` | Show queued messages |
+| `/cancel` | Cancel queued messages (`/cancel N` for specific) |
 | `/reset` | Clear session and start fresh |
 
-`Ctrl+Z` interrupts the running agent. `Ctrl+Q` quits.
+`Ctrl+Z` interrupts the running agent. `Ctrl+Q` quits. Up/down arrows cycle through input history.
 
 ## Configuration
 

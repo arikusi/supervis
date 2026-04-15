@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.1.1 (2026-04-15)
+
+### Added
+
+* **File-based logging.** All events, API calls, and errors logged to `~/.local/share/supervis/supervis.log` with rotation (2MB, 3 backups). Pass `--debug` to also log to stderr.
+* **Streaming display.** DeepSeek output now streams live in a dedicated widget instead of appearing all at once when the response completes.
+* **Reasoning display.** `/reasoning` toggles live display of DeepSeek's thinking/reasoning process.
+* **Message queue management.** `/queue` lists pending messages, `/cancel` removes them. No more stuck queued messages you can't take back.
+* **Input history.** Up/down arrows cycle through previously sent messages.
+* **New commands:** `/queue`, `/cancel`, `/reasoning`.
+* **StreamDisplay widget.** Static-based widget that updates in place during streaming. Replaced the broken `_lines.pop()` approach on RichLog.
+
+### Changed
+
+* **Color scheme.** Claude output is now orange (#e87d3e), DeepSeek stays cyan, thinking/reasoning is dim blue (#5f87af). Clearer visual separation.
+* **System prompt refined.** DeepSeek no longer repeats Claude Code's output or narrates results. Confirms completion briefly instead of summarizing what was already visible in the TUI.
+* **MessageQueue replaces asyncio.Queue.** Backed by `asyncio.Event` + list, supports cancel and listing. Same get/put API.
+* **Status bar always shows thinking state.** Previously suppressed on follow-up turns (quiet mode), leaving a dead UI between Claude finishing and DeepSeek responding. Now `DEEPSEEK_THINKING` fires unconditionally.
+* **Text selection enabled.** `ALLOW_SELECT = True` set explicitly on the App.
+
+### Fixed
+
+* **Dead UI after Claude responds.** The quiet mode blindspot: `_api_call(quiet=True)` suppressed all status indicators on turn > 0. Users saw no feedback while DeepSeek processed Claude's results.
+* **Silent crashes on tool execution errors.** `execute_tool()` exceptions propagated to the Textual worker which died silently. Now caught, logged, and reported as tool results so the agent loop continues.
+* **Agent loop crash protection.** `orchestrate()` now wraps `run_agent_loop()` in try/except. Crashes emit a visible error instead of freezing the UI.
+* **RichLog `_lines.pop()` hack.** Accessing RichLog internals to replace streaming lines didn't work in Textual 8.x. Replaced with a proper `Static` widget (`StreamDisplay`) that uses `update()`.
+
 ## 1.1.0 (2026-04-12)
 
 ### Added

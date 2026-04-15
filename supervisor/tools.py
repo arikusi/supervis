@@ -1,11 +1,14 @@
 """Tool definitions and implementations for DeepSeek."""
 
 import glob as _glob
+import logging
 import subprocess
 from pathlib import Path
 
 from .claude import run_claude
 from .events import EventType, emit
+
+logger = logging.getLogger(__name__)
 
 # ─── Definitions ─────────────────────────────────────────────────────────────
 
@@ -163,6 +166,7 @@ def _run_shell(command: str, timeout: int = 15) -> str:
     cmd_lower = command.lower().strip()
     for pattern in _BLOCKED_PATTERNS:
         if pattern.lower() in cmd_lower:
+            logger.warning("Blocked shell command: %s (matched: %s)", command[:80], pattern)
             return f"Error: command blocked for safety (matched: {pattern!r})"
 
     try:
@@ -205,6 +209,7 @@ _TOOL_LABELS = {
 
 
 async def execute_tool(name: str, args: dict, session=None) -> str:
+    logger.debug("execute_tool: %s", name)
     if name == "run_claude":
         return await run_claude(args["prompt"], args.get("continue_session", True), session=session)
 

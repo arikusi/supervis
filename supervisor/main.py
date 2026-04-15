@@ -6,7 +6,11 @@ from pathlib import Path
 
 
 def main() -> None:
-    project_dir = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
+    # Parse --debug flag before anything else
+    debug = "--debug" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--debug"]
+
+    project_dir = args[0] if args else os.getcwd()
     project_dir = str(Path(project_dir).resolve())
 
     if not Path(project_dir).is_dir():
@@ -14,6 +18,11 @@ def main() -> None:
         sys.exit(1)
 
     os.chdir(project_dir)
+
+    # Set up logging before anything else
+    from .logging_config import setup_logging
+
+    setup_logging(debug=debug)
 
     # Load config (TOML, layered)
     from .config import load_config, load_project_instructions, prompt_api_key

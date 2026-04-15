@@ -59,6 +59,7 @@ class Session:
     # Model config
     model: str = "deepseek-chat"
     thinking: bool = True
+    show_reasoning: bool = False
 
     # Limits
     max_cost: float | None = None

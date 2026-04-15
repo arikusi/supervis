@@ -151,3 +151,28 @@ class TestAgentLoop:
             await run_agent_loop(session)
 
         assert len(session.messages) == original_len  # unchanged, didn't crash
+
+    @pytest.mark.asyncio
+    async def test_tool_execution_error_doesnt_crash_loop(self):
+        """If execute_tool raises, the error becomes the tool result and the loop continues."""
+        call_count = 0
+
+        async def mock_stream_turn(session, quiet=False):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return "", [{"id": "tc1", "name": "run_claude", "arguments": '{"prompt": "test"}'}], ""
+            return "Done after error", [], ""
+
+        async def mock_execute_tool(name, args, session):
+            raise RuntimeError("subprocess exploded")
+
+        with patch("supervisor.deepseek.stream_turn", side_effect=mock_stream_turn):
+            with patch("supervisor.deepseek.execute_tool", side_effect=mock_execute_tool):
+                session = _make_session([{"role": "system", "content": "sys"}])
+                await run_agent_loop(session)
+
+        assert call_count == 2  # loop continued after error
+        tool_msgs = [m for m in session.messages if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert "subprocess exploded" in tool_msgs[0]["content"]

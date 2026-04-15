@@ -1,7 +1,5 @@
 """Textual App for supervis TUI."""
 
-import asyncio
-
 from openai import AsyncOpenAI
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -11,14 +9,16 @@ from .claude import get_proc, reset_session
 from .commands import dispatch, get_help
 from .config import Config
 from .events import Event, EventType, emit, subscribe, unsubscribe
+from .queue import MessageQueue
 from .session import Session
-from .widgets import InputBar, OutputLog, StatusBar
+from .widgets import InputBar, OutputLog, StatusBar, StreamDisplay
 
 
 class SupervisApp(App):
     """DeepSeek Supervisor × Claude Code TUI."""
 
     TITLE = "supervis"
+    ALLOW_SELECT = True
 
     BINDINGS = [
         Binding("ctrl+z", "interrupt", "Interrupt agent", show=True),
@@ -44,7 +44,7 @@ class SupervisApp(App):
         super().__init__(**kwargs)
         self._project_dir = project_dir
         self._system_prompt = system_prompt
-        self._user_queue: asyncio.Queue = asyncio.Queue()
+        self._user_queue = MessageQueue()
         self._agent_running = False
         self._ctrl_c_count = 0
 
@@ -65,6 +65,7 @@ class SupervisApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield OutputLog(id="output")
+        yield StreamDisplay(id="stream")
         yield StatusBar(id="status")
         yield InputBar(id="input", placeholder="Type a message or /help...")
         yield Footer()
@@ -90,6 +91,7 @@ class SupervisApp(App):
     def _handle_event(self, event: Event) -> None:
         """Handle events on the Textual thread."""
         log = self.query_one("#output", OutputLog)
+        stream = self.query_one("#stream", StreamDisplay)
         status = self.query_one("#status", StatusBar)
         d = event.data
 
@@ -98,16 +100,21 @@ class SupervisApp(App):
                 log.write_deepseek_start()
                 status.thinking = True
             case EventType.DEEPSEEK_THINKING:
-                log.write_deepseek_thinking()
                 status.thinking = True
             case EventType.DEEPSEEK_TOKEN:
                 log.write_deepseek_token(d.get("text", ""))
+                stream.show_streaming("DeepSeek", log._ds_buffer, "cyan")
+            case EventType.DEEPSEEK_REASONING:
+                log.write_deepseek_reasoning(d.get("text", ""))
+                stream.show_streaming("thinking", log._reasoning_buffer, "#5f87af")
             case EventType.DEEPSEEK_DONE:
+                stream.clear_streaming()
                 summary = d.get("cost", "")
                 log.write_deepseek_done(summary)
                 status.thinking = False
                 status.cost_text = summary
             case EventType.DEEPSEEK_ERROR:
+                stream.clear_streaming()
                 log.write_deepseek_error(d.get("error", ""))
                 status.thinking = False
             case EventType.DEEPSEEK_RETRY:
@@ -127,6 +134,7 @@ class SupervisApp(App):
             case EventType.STATUS:
                 log.write_system(d.get("text", ""))
             case EventType.INTERRUPT:
+                stream.clear_streaming()
                 log.write_interrupt()
                 status.thinking = False
             case EventType.QUEUE_UPDATE:
@@ -141,6 +149,8 @@ class SupervisApp(App):
         if not text:
             return
 
+        input_bar = self.query_one("#input", InputBar)
+        input_bar.add_to_history(text)
         event.input.clear()
 
         if text.lower() in {"exit", "quit", "q", "çıkış"}:
@@ -157,7 +167,7 @@ class SupervisApp(App):
         self._ctrl_c_count = 0
 
         if self._agent_running:
-            count = self._user_queue.qsize()
+            count = self._user_queue.qsize
             emit(EventType.QUEUE_UPDATE, count=count)
 
     # ─── Interrupt handling ──────────────────────────────────────────────
