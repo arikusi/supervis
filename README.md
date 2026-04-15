@@ -150,9 +150,12 @@ You tell supervis what you want. supervis tells Claude Code how to build it.
 | `/export md` or `json` | Export conversation to file |
 | `/undo` | Git stash or revert last changes |
 | `/update` | Check for new supervis version |
+| `/reasoning` | Toggle DeepSeek thinking/reasoning display |
+| `/queue` | Show queued messages |
+| `/cancel` | Cancel queued messages (`/cancel N` for specific) |
 | `/reset` | Clear session and start fresh |
 
-`Ctrl+Z` interrupts the running agent. `Ctrl+Q` quits.
+`Ctrl+Z` interrupts the running agent. `Ctrl+Q` quits. Up/down arrows cycle through input history.
 
 ## Configuration
 

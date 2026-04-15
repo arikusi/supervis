@@ -1,6 +1,6 @@
 # supervis — full documentation
 
-DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 1.1.0.
+DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 1.1.1.
 
 ## What it is
 
@@ -141,6 +141,9 @@ You can also place a `config.toml` in `.supervis/` for per-project settings (dif
 * `/export` — Export conversation: `/export md | json`
 * `/undo` — Undo last changes (git stash if uncommitted, git revert if committed)
 * `/update` — Check PyPI for new supervis version
+* `/reasoning` — Toggle live display of DeepSeek thinking/reasoning
+* `/queue` — Show pending queued messages
+* `/cancel` — Cancel queued messages (`/cancel N` for a specific one)
 * `/help` — Show available commands
 
 Commands are extensible via the registry in `commands.py` using the `@register` decorator.
@@ -173,7 +176,7 @@ At 80% usage, supervis prints a warning. At 100%, it stops sending requests to D
 Event-driven design. Business logic emits typed events through an EventBus. The TUI subscribes and renders. No business logic file imports UI code.
 
 ```
-User input → Textual InputBar → asyncio.Queue → Orchestrator
+User input → Textual InputBar → MessageQueue → Orchestrator
   → DeepSeek API (thinking mode, streaming)
     → Claude Code subprocess (stream-json)
       → Tool results back to DeepSeek
@@ -194,10 +197,13 @@ supervisor/
   commands.py      — Slash command registry with decorator-based registration
   tools.py         — Tool definitions and implementations for DeepSeek
   version_check.py — Non-blocking PyPI update checker
+  queue.py         — MessageQueue with cancel/list support (replaces asyncio.Queue)
+  logging_config.py — File-based logging with rotation
   widgets/
     output_log.py  — RichLog subclass with semantic write methods
-    input_bar.py   — Input subclass (Textual default behavior)
+    input_bar.py   — Input subclass with up/down arrow history
     status_bar.py  — Static widget with reactive properties
+    stream_display.py — Static widget for live streaming display (updates in place)
   config.py        — TOML config system: load, merge, migrate, env overrides
   cost.py          — Token counting (backward compat wrapper, delegates to CostTracker)
   memory.py        — Conversation summarization when history grows

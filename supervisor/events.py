@@ -17,6 +17,7 @@ class EventType(Enum):
     DEEPSEEK_START = auto()
     DEEPSEEK_THINKING = auto()
     DEEPSEEK_TOKEN = auto()
+    DEEPSEEK_REASONING = auto()
     DEEPSEEK_DONE = auto()
     DEEPSEEK_ERROR = auto()
     DEEPSEEK_RETRY = auto()
@@ -60,6 +61,7 @@ def unsubscribe(fn: Callable[[Event], None]) -> None:
 
 
 def emit(event_type: EventType, **data) -> None:
+    logger.debug("emit %s", event_type.name)
     event = Event(type=event_type, data=data)
     for fn in _subscribers:
         try:

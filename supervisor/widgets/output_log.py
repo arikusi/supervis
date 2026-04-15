@@ -5,7 +5,9 @@ from textual.widgets import RichLog
 
 
 class OutputLog(RichLog):
-    """Main output area. Uses buffer-then-flush for streaming content."""
+    """Main output area. Buffers DeepSeek tokens, writes final on DONE.
+    Live streaming preview is handled by StreamDisplay (separate widget).
+    """
 
     DEFAULT_CSS = """
     OutputLog {
@@ -18,17 +20,19 @@ class OutputLog(RichLog):
     def __init__(self, **kwargs) -> None:
         super().__init__(highlight=True, markup=True, wrap=True, **kwargs)
         self._ds_buffer = ""
+        self._reasoning_buffer = ""
 
-    # ─── DeepSeek (buffered) ─────────────────────────────────────────
+    # ─── DeepSeek ────────────────────────────────────────────────────
 
     def write_deepseek_start(self) -> None:
         self._ds_buffer = ""
-
-    def write_deepseek_thinking(self) -> None:
-        pass  # status bar handles this
+        self._reasoning_buffer = ""
 
     def write_deepseek_token(self, token: str) -> None:
         self._ds_buffer += token
+
+    def write_deepseek_reasoning(self, token: str) -> None:
+        self._reasoning_buffer += token
 
     def write_deepseek_done(self, cost_summary: str) -> None:
         text = Text()
@@ -41,6 +45,7 @@ class OutputLog(RichLog):
             text.append(f"  [{cost_summary}]", style="dim")
         self.write(text)
         self._ds_buffer = ""
+        self._reasoning_buffer = ""
 
     def write_deepseek_error(self, error: str) -> None:
         self.write(Text(f"[DeepSeek error: {error}]", style="yellow"))
@@ -48,23 +53,23 @@ class OutputLog(RichLog):
     def write_deepseek_retry(self, status: int, wait: int) -> None:
         self.write(Text(f"[API error {status}, retrying in {wait}s...]", style="dim yellow"))
 
-    # ─── Claude (live) ─────────────────────────────────────────────
+    # ─── Claude ──────────────────────────────────────────────────────
 
     def write_claude_start(self, prompt_preview: str) -> None:
         t = Text()
-        t.append("┌─ Claude Code ", style="bold blue")
-        t.append(prompt_preview, style="dim blue")
+        t.append("┌─ Claude Code ", style="bold #e87d3e")
+        t.append(prompt_preview, style="dim #e87d3e")
         self.write(t)
 
     def write_claude_text(self, text: str) -> None:
-        self.write(Text(f"│ {text}", style="blue"))
+        self.write(Text(f"│ {text}", style="#e87d3e"))
 
     def write_claude_tool(self, label: str) -> None:
-        self.write(Text(f"│ ↳ {label}", style="dim"))
+        self.write(Text(f"│ ↳ {label}", style="dim #e87d3e"))
 
     def write_claude_done(self, tool_count: int) -> None:
         suffix = f" ({tool_count} tool calls)" if tool_count else ""
-        self.write(Text(f"└─ done{suffix}", style="bold blue"))
+        self.write(Text(f"└─ done{suffix}", style="bold #e87d3e"))
 
     # ─── System / misc ───────────────────────────────────────────────
 

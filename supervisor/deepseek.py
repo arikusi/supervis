@@ -2,10 +2,13 @@
 
 import asyncio
 import json
+import logging
 
 from .events import EventType, emit
 from .session import Session
 from .tools import TOOLS, execute_tool
+
+logger = logging.getLogger(__name__)
 
 _RETRYABLE_CODES = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 3
@@ -18,6 +21,9 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
     """
     if not quiet:
         emit(EventType.DEEPSEEK_START)
+
+    # Always signal the status bar, even in quiet mode
+    emit(EventType.DEEPSEEK_THINKING)
 
     # Strip reasoning_content from older turns before sending
     session.strip_old_reasoning()
@@ -41,7 +47,6 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
     content = ""
     reasoning = ""
     tc_raw: dict[int, dict] = {}
-    thinking_shown = False
     header_shown = not quiet
 
     async for chunk in response:
@@ -57,10 +62,9 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
 
         rc = getattr(delta, "reasoning_content", None)
         if rc:
-            if not thinking_shown:
-                emit(EventType.DEEPSEEK_THINKING)
-                thinking_shown = True
             reasoning += rc
+            if session.show_reasoning:
+                emit(EventType.DEEPSEEK_REASONING, text=rc)
 
         if delta.content:
             if not header_shown:
@@ -96,21 +100,27 @@ async def stream_turn(session: Session, quiet: bool = False) -> tuple[str, list,
     # Budget check before API call
     ok, warning = session.check_budget()
     if not ok:
+        logger.warning("Budget exceeded: %s", warning)
         emit(EventType.DEEPSEEK_ERROR, error=warning)
         return "", [], ""
     if warning:
         emit(EventType.STATUS, text=warning)
 
+    logger.debug("stream_turn start (model=%s, quiet=%s, messages=%d)", session.model, quiet, len(session.messages))
     for attempt in range(_MAX_RETRIES):
         try:
-            return await _api_call(session, quiet=quiet)
+            result = await _api_call(session, quiet=quiet)
+            logger.debug("stream_turn done (content=%d chars, tools=%d)", len(result[0]), len(result[1]))
+            return result
         except Exception as e:
             status = getattr(e, "status_code", None) or getattr(e, "code", None)
             if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
                 wait = 2 ** (attempt + 1)
+                logger.warning("API error %s, retry %d/%d in %ds", status, attempt + 1, _MAX_RETRIES, wait)
                 emit(EventType.DEEPSEEK_RETRY, status=status, wait=wait)
                 await asyncio.sleep(wait)
                 continue
+            logger.exception("API call failed (non-retryable)")
             raise
 
     return "", [], ""
@@ -121,6 +131,7 @@ async def run_agent_loop(session: Session) -> None:
     Agentic loop: keep calling DeepSeek + executing tools until
     DeepSeek stops making tool calls.
     """
+    logger.debug("agent loop start")
     turn = 0
     while True:
         try:
@@ -129,6 +140,7 @@ async def run_agent_loop(session: Session) -> None:
                 quiet=(turn > 0),
             )
         except Exception as e:
+            logger.exception("Agent loop turn %d failed", turn)
             emit(EventType.DEEPSEEK_ERROR, error=str(e))
             break
 
@@ -171,7 +183,12 @@ async def run_agent_loop(session: Session) -> None:
             except json.JSONDecodeError:
                 args = {}
 
-            result = await execute_tool(tc["name"], args, session)
+            try:
+                result = await execute_tool(tc["name"], args, session)
+            except Exception as e:
+                logger.exception("Tool %s failed", tc["name"])
+                result = f"Error executing {tc['name']}: {e}"
+                emit(EventType.DEEPSEEK_ERROR, error=f"Tool '{tc['name']}' failed: {e}")
             session.messages.append(
                 {
                     "role": "tool",

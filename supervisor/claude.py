@@ -2,9 +2,12 @@
 
 import asyncio
 import json
+import logging
 import os
 
 from .events import EventType, emit
+
+logger = logging.getLogger(__name__)
 
 # Module-level fallback for backward compat (used when no session passed)
 _claude_first = True
@@ -54,6 +57,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     else:
         _claude_first = False
 
+    logger.debug("Claude subprocess start: %s", " ".join(cmd[:4]))
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -125,9 +129,11 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        logger.warning("Claude subprocess timed out after %ds", timeout)
         emit(EventType.CLAUDE_ERROR, error=f"Claude Code subprocess timed out ({timeout // 60} min)")
         return f"(Claude Code timed out after {timeout // 60} minutes)"
 
+    logger.debug("Claude subprocess done (tool_count=%d)", tool_count)
     emit(EventType.CLAUDE_DONE, tool_count=tool_count)
 
     full = "\n".join(chunks) or "(no output)"
