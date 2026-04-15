@@ -21,9 +21,13 @@ supervis puts [DeepSeek](https://platform.deepseek.com) between you and Claude C
 
 ## Demo
 
+One prompt. supervis took it from there: planned the approach, had Claude Code scaffold the project, build the UI, write the logic, run the build, and deploy to Cloudflare Pages. No human intervention between start and live URL.
+
 <p align="center">
   <img src="assets/demo.svg" alt="supervis demo" width="100%">
 </p>
+
+**Result:** [markdown-notes-31o.pages.dev](https://markdown-notes-31o.pages.dev/) · [source code](https://github.com/arikusi/markdown-notes) · *Full screenshots in [assets/](assets/) (demo_1 through demo_7)*
 
 ## How supervis works
 
