@@ -68,6 +68,23 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     if session:
         session.claude_proc = proc
 
+    # Drain stderr concurrently. If we only read stdout and leave stderr=PIPE
+    # unread, a chatty subprocess can fill the ~64KB pipe buffer and block,
+    # deadlocking until the timeout kills it.
+    stderr_chunks: list[str] = []
+
+    async def _drain_stderr() -> None:
+        if proc.stderr is None:
+            return
+        try:
+            async for raw in proc.stderr:
+                if len(stderr_chunks) < 500:
+                    stderr_chunks.append(raw.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+
+    stderr_task = asyncio.create_task(_drain_stderr())
+
     chunks: list[str] = []
     tool_count = 0
 
@@ -119,6 +136,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
 
     except asyncio.CancelledError:
         proc.terminate()
+        stderr_task.cancel()
         raise
     finally:
         if session:
@@ -129,12 +147,25 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        stderr_task.cancel()
         logger.warning("Claude subprocess timed out after %ds", timeout)
         emit(EventType.CLAUDE_ERROR, error=f"Claude Code subprocess timed out ({timeout // 60} min)")
         return f"(Claude Code timed out after {timeout // 60} minutes)"
 
-    logger.debug("Claude subprocess done (tool_count=%d)", tool_count)
+    await stderr_task
+
+    logger.debug("Claude subprocess done (tool_count=%d, rc=%s)", tool_count, proc.returncode)
     emit(EventType.CLAUDE_DONE, tool_count=tool_count)
+
+    # A hard failure that produced no usable stdout would otherwise look like a
+    # plain "(no output)" — surface the exit code and stderr tail instead.
+    if not chunks and proc.returncode not in (0, None):
+        err_tail = "".join(stderr_chunks).strip()[-500:]
+        msg = f"Claude Code exited with code {proc.returncode}"
+        if err_tail:
+            msg += f": {err_tail}"
+        emit(EventType.CLAUDE_ERROR, error=msg)
+        return f"({msg})"
 
     full = "\n".join(chunks) or "(no output)"
     if len(full) > truncation:

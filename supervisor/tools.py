@@ -40,6 +40,24 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "escalate",
+            "description": (
+                "Escalate the NEXT step to the stronger model (deepseek-v4-pro) for a "
+                "genuinely hard or architectural decision — a design trade-off, a tricky "
+                "root-cause diagnosis, a plan that will be expensive to get wrong. The next "
+                "turn reasons on pro with full context. Use sparingly; routine steps stay on "
+                "the fast model."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"reason": {"type": "string", "description": "Why this decision needs deeper thought."}},
+                "required": ["reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_file",
             "description": "RARELY NEEDED. Read a single file. Prefer run_claude for any exploration — Claude Code reads files much faster.",
             "parameters": {
@@ -212,6 +230,13 @@ async def execute_tool(name: str, args: dict, session=None) -> str:
     logger.debug("execute_tool: %s", name)
     if name == "run_claude":
         return await run_claude(args["prompt"], args.get("continue_session", True), session=session)
+
+    if name == "escalate":
+        reason = args.get("reason", "")
+        if session:
+            session.request_escalation()
+        emit(EventType.STATUS, text=f"supervis flagged a hard decision: {reason}")
+        return "Acknowledged. The next step will run on deepseek-v4-pro with full context."
 
     label_fn = _TOOL_LABELS.get(name)
     if label_fn:

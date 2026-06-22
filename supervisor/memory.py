@@ -47,6 +47,20 @@ def _format_messages_for_summary(messages: list) -> str:
     return "\n\n".join(parts)[:12000]
 
 
+def _safe_tail_start(messages: list, keep: int) -> int:
+    """Largest index <= len-keep that starts on a user message.
+
+    The kept tail must begin on a user message: if it started on a tool result
+    whose assistant tool_calls got summarized away, DeepSeek rejects the orphaned
+    tool message ("must be a response to a preceding message with tool_calls").
+    """
+    start = max(1, len(messages) - keep)
+    for i in range(start, 0, -1):
+        if messages[i].get("role") == "user":
+            return i
+    return 1  # no safe split point — caller skips summarizing this round
+
+
 async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
     """When history exceeds threshold, summarize older messages to save tokens."""
     messages = session.messages
@@ -54,18 +68,18 @@ async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
     if len(user_msgs) <= threshold:
         return
 
-    to_summarize = messages[1:-12]
-    if not to_summarize:
+    tail_start = _safe_tail_start(messages, keep=12)
+    if tail_start <= 1:
         return
 
-    to_summarize = _clean_for_summarize(to_summarize)
+    to_summarize = _clean_for_summarize(messages[1:tail_start])
 
     from .events import EventType, emit
 
     emit(EventType.SUMMARY)
     try:
         resp = await session.client.chat.completions.create(
-            model=session.model,
+            model=session.base_model,
             messages=[
                 {
                     "role": "system",
@@ -86,7 +100,7 @@ async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
         session.messages = [
             messages[0],
             {"role": "assistant", "content": f"[Session summary: {summary}]"},
-            *messages[-12:],
+            *messages[tail_start:],
         ]
     except Exception:
         pass  # Keep original messages on failure

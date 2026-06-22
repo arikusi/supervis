@@ -24,8 +24,10 @@ class Config:
 
     # Provider
     api_key: str = ""
-    model: str = "deepseek-chat"
+    model: str = "deepseek-v4-flash"  # base/driver tier
+    pro_model: str = "deepseek-v4-pro"  # escalation tier
     thinking: bool = True
+    auto_escalate: bool = True
 
     # Behavior
     max_cost: float | None = None
@@ -49,8 +51,12 @@ def _apply_toml(config: Config, data: dict) -> None:
         config.api_key = str(data["api_key"]).strip()
     if "model" in data:
         config.model = str(data["model"]).strip()
+    if "pro_model" in data:
+        config.pro_model = str(data["pro_model"]).strip()
     if "thinking" in data:
         config.thinking = bool(data["thinking"])
+    if "auto_escalate" in data:
+        config.auto_escalate = bool(data["auto_escalate"])
 
     behavior = data.get("behavior", {})
     if "max_cost" in behavior:
@@ -82,11 +88,21 @@ def _apply_env(config: Config) -> None:
     if model:
         config.model = model
 
+    pro_model = os.environ.get("SUPERVIS_PRO_MODEL", "").strip()
+    if pro_model:
+        config.pro_model = pro_model
+
     thinking = os.environ.get("SUPERVIS_THINKING", "").strip().lower()
     if thinking in ("0", "false", "no", "off"):
         config.thinking = False
     elif thinking in ("1", "true", "yes", "on"):
         config.thinking = True
+
+    auto = os.environ.get("SUPERVIS_AUTO_ESCALATE", "").strip().lower()
+    if auto in ("0", "false", "no", "off"):
+        config.auto_escalate = False
+    elif auto in ("1", "true", "yes", "on"):
+        config.auto_escalate = True
 
 
 def _migrate_old_config() -> None:
@@ -127,7 +143,27 @@ def load_config(project_dir: str | None = None) -> Config:
     # Layer 3: env vars (highest priority)
     _apply_env(config)
 
+    # Legacy model ids retire 2026-07-24. Remap so existing configs keep working.
+    _migrate_legacy_model(config)
+
     return config
+
+
+_LEGACY_MODELS = {
+    "deepseek-chat": ("deepseek-v4-flash", False),
+    "deepseek-reasoner": ("deepseek-v4-flash", True),
+}
+
+
+def _migrate_legacy_model(config: Config) -> None:
+    """Remap retired model ids to their V4 equivalent, with a one-line notice."""
+    mapped = _LEGACY_MODELS.get(config.model)
+    if not mapped:
+        return
+    new_model, thinking = mapped
+    print(f"Note: '{config.model}' retires 2026-07-24 — using {new_model} instead.")
+    config.model = new_model
+    config.thinking = thinking
 
 
 def prompt_api_key() -> str:

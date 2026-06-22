@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0 (2026-06-22)
+
+### Added
+
+* **DeepSeek V4.** supervis now runs on `deepseek-v4-flash` (base) and `deepseek-v4-pro` (escalation), both with a 1M-token context. The legacy `deepseek-chat` / `deepseek-reasoner` ids retire 2026-07-24; configs that still name them are remapped to `deepseek-v4-flash` at load with a one-line notice.
+* **Model tiering.** Routine "drive Claude Code" steps run on cheap flash; supervis escalates to pro only when it matters. The active tier shows in the status bar, with `↑` when escalated.
+* **Self-requested escalation.** New `escalate` tool — facing a hard or architectural decision, the supervisor escalates the next turn to pro (with `reasoning_effort=high`) and reasons with full context.
+* **Self-correction.** supervis classifies each `run_claude` result. A streak of failures (errors, timeouts, or the same step repeating) auto-escalates to pro and injects a "stop, diagnose the root cause, re-plan" note instead of grinding the same broken approach; a success drops it back to flash. Past a hard cap it surfaces a "stuck" message asking you to step in.
+* **New settings & commands.** Config keys `pro_model`, `auto_escalate`; env vars `SUPERVIS_PRO_MODEL`, `SUPERVIS_AUTO_ESCALATE`. `/model flash|flash-fast|pro|pro-fast|auto` pins a model or returns to tiering; `/auto on|off` toggles automatic escalation.
+
+### Changed
+
+* **Per-tier cost tracking.** Pricing moved to a single `pricing.py` table; `CostTracker` accrues dollars at each model's own rate, so mixed flash/pro sessions are billed correctly. Updated to V4 rates (flash $0.14/$0.0028/$0.28, pro $0.435/$0.003625/$0.87 per 1M).
+* **Thinking toggle for both models.** `extra_body` thinking enable/disable now applies to both V4 models instead of only `deepseek-chat`.
+* **Default model** is now `deepseek-v4-flash`.
+
+### Fixed
+
+* **Claude Code subprocess could deadlock.** `stderr` was piped but never read; a subprocess that wrote more than the ~64KB pipe buffer to stderr would block until the timeout killed it. stderr is now drained concurrently, and a non-zero exit with no stdout surfaces the exit code and stderr tail instead of a bare `(no output)`.
+* **Summarization could corrupt the message history.** Keeping the last 12 messages verbatim could start the kept tail on an orphaned `tool` result whose `assistant` tool_calls had been summarized away — which DeepSeek rejects with a 400. The split point now always lands on a user message. Summaries also run on the base (cheap) model regardless of the active tier.
+* **Bogus "update available" prompt.** The version check flagged any difference from PyPI as an update, so a locally installed build newer than the published release prompted a downgrade. It now compares versions numerically.
+
+### Removed
+
+* **Dead `cost.py`.** The module-level cost globals were unused at runtime (real tracking lives in `CostTracker`). Removed along with its test.
+
 ## 1.1.1 (2026-04-15)
 
 ### Added

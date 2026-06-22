@@ -16,5 +16,8 @@ build/
 # Claude Code
 .claude/
 
+# Cloudflare wrangler (demo deploy cache)
+.wrangler/
+
 # OS
 .DS_Store

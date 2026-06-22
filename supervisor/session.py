@@ -6,31 +6,62 @@ from dataclasses import dataclass, field
 
 from openai import AsyncOpenAI
 
+from .pricing import price_for
+
+# Auto-escalation tuning
+ESCALATE_AFTER = 2  # consecutive unproductive run_claude results before escalating to pro
+REPEAT_THRESHOLD = 3  # identical run_claude prompt sent this many times = stuck
+STUCK_CAP = 5  # past this many failures, surface to the user
+
+# Substrings that mark a run_claude result as unproductive. Kept deliberately strong
+# so ordinary output that merely mentions "error" doesn't trip escalation.
+_FAILURE_MARKERS = (
+    "(no output)",
+    "timed out",
+    "traceback (most recent call last)",
+    "build failed",
+    "tests failed",
+    "test failed",
+    "compilation failed",
+    "command not found",
+    "no such file or directory",
+    "fatal:",
+    "segmentation fault",
+)
+
 
 @dataclass
 class CostTracker:
-    """Token and cost tracking for a single session."""
+    """Token and cost tracking for a single session.
+
+    Dollars are accrued at record() time using each model's own rate, so a session
+    that mixes flash and pro tokens (tiering) is billed correctly per tier.
+    """
 
     input_tokens: int = 0
     input_cached: int = 0
     output_tokens: int = 0
+    accrued_cost: float = 0.0
 
-    # DeepSeek V3.2 pricing (per 1M tokens)
-    price_input: float = 0.28
-    price_input_cached: float = 0.028
-    price_output: float = 0.42
-
-    def record(self, input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> None:
-        self.input_tokens += input_tokens - cached_tokens
+    def record(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        cached_tokens: int = 0,
+        model: str = "deepseek-v4-flash",
+    ) -> None:
+        miss = input_tokens - cached_tokens
+        self.input_tokens += miss
         self.input_cached += cached_tokens
         self.output_tokens += output_tokens
 
-    def session_cost(self) -> float:
-        return (
-            self.input_tokens / 1_000_000 * self.price_input
-            + self.input_cached / 1_000_000 * self.price_input_cached
-            + self.output_tokens / 1_000_000 * self.price_output
+        p_miss, p_cached, p_out = price_for(model)
+        self.accrued_cost += (
+            miss / 1_000_000 * p_miss + cached_tokens / 1_000_000 * p_cached + output_tokens / 1_000_000 * p_out
         )
+
+    def session_cost(self) -> float:
+        return self.accrued_cost
 
     def summary(self) -> str:
         total_in = self.input_tokens + self.input_cached
@@ -43,6 +74,7 @@ class CostTracker:
 
     def reset(self) -> None:
         self.input_tokens = self.input_cached = self.output_tokens = 0
+        self.accrued_cost = 0.0
 
 
 @dataclass
@@ -56,10 +88,28 @@ class Session:
     claude_proc: asyncio.subprocess.Process | None = None
     claude_first: bool = True
 
-    # Model config
-    model: str = "deepseek-chat"
+    # Active model for the current turn (derived by select_turn_model).
+    model: str = "deepseek-v4-flash"
     thinking: bool = True
     show_reasoning: bool = False
+
+    # Tiering: cheap driver (base) + frontier model for hard moments (pro).
+    base_model: str = "deepseek-v4-flash"
+    base_thinking: bool = True
+    pro_model: str = "deepseek-v4-pro"
+    pro_thinking: bool = True
+    reasoning_effort: str = "high"  # used on pro turns
+
+    # Escalation control
+    auto_escalate: bool = True
+    pinned: bool = False  # user pinned a model via /model; disables auto-tiering
+    _pinned_model: str = ""
+    _pinned_thinking: bool = True
+    _escalate_next: bool = False  # one-shot: run the next turn on pro
+    _failures: int = 0  # consecutive unproductive run_claude results
+    _recent_prompts: list = field(default_factory=list)
+    _pending_nudge: str | None = None
+    _stuck_alert: bool = False
 
     # Limits
     max_cost: float | None = None
@@ -71,10 +121,15 @@ class Session:
     start_time: float = field(default_factory=time.time)
 
     def reset(self) -> None:
-        """Reset conversation state. Keeps client and config."""
+        """Reset conversation state. Keeps client, config, and model preference."""
         self.messages = [self.messages[0]] if self.messages else []
         self.cost.reset()
         self.claude_first = True
+        self._failures = 0
+        self._escalate_next = False
+        self._recent_prompts = []
+        self._pending_nudge = None
+        self._stuck_alert = False
 
     def check_budget(self) -> tuple[bool, str]:
         """Check cost against max_cost. Returns (ok_to_proceed, warning_or_empty)."""
@@ -90,11 +145,96 @@ class Session:
             return True, f"Budget warning: ${current:.4f} / ${self.max_cost:.2f} ({ratio:.0%})"
         return True, ""
 
-    def switch_model(self, model: str, thinking: bool) -> None:
-        """Switch DeepSeek model. Resets Claude session for fresh context."""
+    # ─── Model tiering ───────────────────────────────────────────────────────
+
+    @property
+    def escalated(self) -> bool:
+        """True when the active model is the pro tier."""
+        return self.model == self.pro_model
+
+    def pin_model(self, model: str, thinking: bool) -> None:
+        """Pin a model chosen by the user via /model. Disables auto-tiering."""
+        self.pinned = True
+        self._pinned_model = model
+        self._pinned_thinking = thinking
         self.model = model
         self.thinking = thinking
         self.claude_first = True
+
+    def unpin(self) -> None:
+        """Return to automatic tiering (flash base, pro on escalation)."""
+        self.pinned = False
+        self._escalate_next = False
+        self._failures = 0
+
+    def request_escalation(self) -> None:
+        """Run the next supervisor turn on pro (model-requested, one-shot)."""
+        self._escalate_next = True
+
+    def select_turn_model(self) -> tuple[bool, str]:
+        """Pick the model for the upcoming supervisor turn.
+
+        Returns (changed, reason) where changed is True if the active model id
+        differs from the previous turn, so the caller can announce the switch.
+        """
+        prev = self.model
+        reason = ""
+
+        if self.pinned:
+            target_model, target_thinking = self._pinned_model, self._pinned_thinking
+        elif self.auto_escalate and (self._escalate_next or self._failures >= ESCALATE_AFTER):
+            target_model, target_thinking = self.pro_model, self.pro_thinking
+            reason = "requested" if self._escalate_next else f"{self._failures} failed attempts"
+        else:
+            target_model, target_thinking = self.base_model, self.base_thinking
+
+        self._escalate_next = False  # one-shot, consumed
+        self.model = target_model
+        self.thinking = target_thinking
+
+        changed = target_model != prev
+        if changed and not reason and target_model == self.base_model:
+            reason = "back to base"
+        return changed, reason
+
+    def note_claude_result(self, prompt: str, result: str) -> None:
+        """Classify a run_claude outcome and update escalation counters.
+
+        Failure markers or a repeated identical prompt count as "stuck". When the
+        failure streak crosses ESCALATE_AFTER, a one-time self-correction nudge is
+        queued (read via consume_nudge); STUCK_CAP queues a user alert.
+        """
+        text = result.lower()
+        failed = any(m in text for m in _FAILURE_MARKERS)
+
+        prefix = " ".join(prompt.split())[:80].lower()
+        self._recent_prompts.append(prefix)
+        self._recent_prompts = self._recent_prompts[-REPEAT_THRESHOLD:]
+        repeating = len(self._recent_prompts) == REPEAT_THRESHOLD and len(set(self._recent_prompts)) == 1
+
+        if failed or repeating:
+            self._failures += 1
+            if self._failures == ESCALATE_AFTER and self.auto_escalate and not self.pinned:
+                self._pending_nudge = (
+                    f"The last {self._failures} Claude Code attempts didn't make progress "
+                    "(errors, timeouts, or the same step repeating). Stop repeating the same "
+                    "approach. Step back, diagnose the root cause first, then form a corrected "
+                    f"plan before the next run_claude. You are now on {self.pro_model} — think carefully."
+                )
+            if self._failures >= STUCK_CAP:
+                self._stuck_alert = True
+        else:
+            self._failures = 0
+
+    def consume_nudge(self) -> str | None:
+        """Return a queued self-correction nudge once, then clear it."""
+        nudge, self._pending_nudge = self._pending_nudge, None
+        return nudge
+
+    def consume_stuck_alert(self) -> bool:
+        """Return True once when the session has crossed the stuck cap."""
+        alert, self._stuck_alert = self._stuck_alert, False
+        return alert
 
     def strip_old_reasoning(self) -> None:
         """Strip reasoning_content from older assistant messages.

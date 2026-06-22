@@ -23,10 +23,14 @@ async def _aiter(items):
         yield item
 
 
-def _make_mock_proc(lines, returncode=0):
+def _make_mock_proc(lines, returncode=0, stderr_lines=None):
     """Create a mock subprocess with given stdout lines."""
     mock_proc = AsyncMock()
     mock_proc.stdout.__aiter__ = lambda self: _aiter(lines)
+    if stderr_lines is None:
+        mock_proc.stderr = None
+    else:
+        mock_proc.stderr.__aiter__ = lambda self: _aiter(stderr_lines)
     mock_proc.returncode = returncode
     mock_proc.wait = AsyncMock(return_value=returncode)
     mock_proc.terminate = MagicMock()
@@ -81,3 +85,15 @@ async def test_subprocess_timeout():
 
     assert "timed out" in result.lower()
     mock_proc.kill.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_failure_surfaces_stderr():
+    """Non-zero exit with no stdout surfaces the exit code and stderr tail."""
+    mock_proc = _make_mock_proc([], returncode=1, stderr_lines=[b"boom: something broke\n"])
+
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        result = await run_claude("test prompt", continue_session=False)
+
+    assert "exited with code 1" in result
+    assert "boom: something broke" in result

@@ -80,38 +80,70 @@ def _cmd_reasoning(app, args: str) -> None:
 # ─── Model switching ─────────────────────────────────────────────────────────
 
 _MODEL_PROFILES = {
-    "chat": ("deepseek-chat", True, "deepseek-chat (thinking enabled, 8K max output)"),
-    "chat-fast": ("deepseek-chat", False, "deepseek-chat (no thinking, faster responses, 8K max output)"),
-    "reasoner": ("deepseek-reasoner", False, "deepseek-reasoner (thinking built-in, 64K max output)"),
+    "flash": ("deepseek-v4-flash", True, "deepseek-v4-flash (thinking)"),
+    "flash-fast": ("deepseek-v4-flash", False, "deepseek-v4-flash (no thinking, fastest)"),
+    "pro": ("deepseek-v4-pro", True, "deepseek-v4-pro (thinking, frontier)"),
+    "pro-fast": ("deepseek-v4-pro", False, "deepseek-v4-pro (no thinking)"),
+    # Legacy aliases (retire 2026-07-24) → nearest V4 profile
+    "chat": ("deepseek-v4-flash", True, "deepseek-v4-flash (thinking)"),
+    "chat-fast": ("deepseek-v4-flash", False, "deepseek-v4-flash (no thinking)"),
+    "reasoner": ("deepseek-v4-pro", True, "deepseek-v4-pro (thinking)"),
 }
 
 
-@register("model", "Switch model: /model chat | chat-fast | reasoner")
+@register("model", "Pin a model or return to auto: /model flash | flash-fast | pro | pro-fast | auto")
 def _cmd_model(app, args: str) -> None:
-    from .widgets import OutputLog
+    from .widgets import OutputLog, StatusBar
 
     log = app.query_one("#output", OutputLog)
     session = app.session
 
     name = args.strip().lower()
     if not name:
-        # Show current
         thinking_str = " + thinking" if session.thinking else ""
-        log.write_system(f"Current model: {session.model}{thinking_str}")
-        log.write_system("Available: /model chat | chat-fast | reasoner")
+        mode = "pinned" if session.pinned else ("auto-tiering" if session.auto_escalate else "base only")
+        log.write_system(f"Active: {session.model}{thinking_str}  ({mode})")
+        log.write_system(
+            f"Base: {session.base_model} · Pro: {session.pro_model} · "
+            f"auto-escalate: {'on' if session.auto_escalate else 'off'}"
+        )
+        log.write_system("Switch: /model flash | flash-fast | pro | pro-fast | auto")
+        return
+
+    if name == "auto":
+        session.unpin()
+        log.write_system("Auto-tiering on: flash by default, pro when escalated.")
+        app.query_one("#status", StatusBar).model_text = session.base_model
         return
 
     profile = _MODEL_PROFILES.get(name)
     if not profile:
-        log.write_system(f"Unknown model: {name}. Available: chat, chat-fast, reasoner")
+        log.write_system(f"Unknown model: {name}. Available: flash, flash-fast, pro, pro-fast, auto")
         return
 
     model, thinking, desc = profile
-    session.switch_model(model, thinking)
-    log.write_system(f"Switched to {desc}")
-    from .widgets import StatusBar
+    session.pin_model(model, thinking)
+    log.write_system(f"Pinned to {desc}")
+    app.query_one("#status", StatusBar).model_text = model
 
-    app.query_one("#status", StatusBar).model_text = name
+
+@register("auto", "Toggle automatic pro-escalation: /auto on | off")
+def _cmd_auto(app, args: str) -> None:
+    from .widgets import OutputLog
+
+    log = app.query_one("#output", OutputLog)
+    session = app.session
+
+    name = args.strip().lower()
+    if name in ("on", "true", "yes"):
+        session.auto_escalate = True
+    elif name in ("off", "false", "no"):
+        session.auto_escalate = False
+    else:
+        state = "on" if session.auto_escalate else "off"
+        log.write_system(f"Auto-escalation is {state}. Usage: /auto on | off")
+        return
+    log.write_system(f"Auto-escalation: {'on' if session.auto_escalate else 'off'}")
 
 
 # ─── Status ──────────────────────────────────────────────────────────────────
@@ -128,9 +160,17 @@ def _cmd_status(app, args: str) -> None:
     mins, secs = divmod(uptime, 60)
     msg_count = len([m for m in session.messages if m.get("role") != "system"])
     thinking_str = " + thinking" if session.thinking else ""
+    if session.pinned:
+        tier = "pinned"
+    elif session.escalated:
+        tier = "escalated → pro"
+    else:
+        tier = "auto-tiering" if session.auto_escalate else "base only"
 
     lines = [
-        f"Model: {session.model}{thinking_str}",
+        f"Model: {session.model}{thinking_str}  ({tier})",
+        f"Tiers: base {session.base_model} · pro {session.pro_model} · "
+        f"auto-escalate {'on' if session.auto_escalate else 'off'}",
         f"Messages: {msg_count}",
         f"Cost: {session.cost.summary()}",
         f"Uptime: {mins}m {secs}s",
@@ -160,8 +200,10 @@ def _cmd_config(app, args: str) -> None:
 
     lines = [
         f"api_key = {masked}",
-        f"model = {session.model}",
+        f"model = {session.base_model}",
+        f"pro_model = {session.pro_model}",
         f"thinking = {session.thinking}",
+        f"auto_escalate = {session.auto_escalate}",
         f"max_cost = {session.max_cost}",
         f"shell_timeout = {session.shell_timeout}",
         f"claude_timeout = {session.claude_timeout}",

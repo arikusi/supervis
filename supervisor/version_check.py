@@ -10,6 +10,26 @@ from . import __version__
 _PYPI_URL = "https://pypi.org/pypi/supervis/json"
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    """True only when `latest` is a strictly higher version than `current`.
+
+    A plain `!=` flags any difference as an update, including a PyPI release that
+    is older than a locally installed dev build — which then prompts a downgrade.
+    """
+
+    def parts(v: str) -> tuple[int, ...]:
+        out = []
+        for token in v.split("."):
+            digits = "".join(ch for ch in token if ch.isdigit())
+            out.append(int(digits) if digits else 0)
+        return tuple(out)
+
+    try:
+        return parts(latest) > parts(current)
+    except Exception:
+        return latest != current
+
+
 def _fetch_latest() -> str | None:
     """Synchronous PyPI fetch. Returns latest version string or None."""
     try:
@@ -29,7 +49,7 @@ async def check_for_update() -> str | None:
     try:
         loop = asyncio.get_event_loop()
         latest = await loop.run_in_executor(None, _fetch_latest)
-        if latest and latest != __version__:
+        if latest and _is_newer(latest, __version__):
             return latest
     except Exception:
         pass
@@ -39,6 +59,6 @@ async def check_for_update() -> str | None:
 def check_for_update_sync() -> tuple[str, str | None]:
     """Synchronous version check. Returns (current_version, latest_or_none)."""
     latest = _fetch_latest()
-    if latest and latest != __version__:
+    if latest and _is_newer(latest, __version__):
         return __version__, latest
     return __version__, None

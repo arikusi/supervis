@@ -56,6 +56,10 @@ class SupervisApp(App):
             client=client,
             model=config.model,
             thinking=config.thinking,
+            base_model=config.model,
+            base_thinking=config.thinking,
+            pro_model=config.pro_model,
+            auto_escalate=config.auto_escalate,
             max_cost=config.max_cost,
             shell_timeout=config.shell_timeout,
             claude_timeout=config.claude_timeout,
@@ -75,6 +79,7 @@ class SupervisApp(App):
         log = self.query_one("#output", OutputLog)
         log.write_system(f"Project: {self._project_dir}")
         log.write_system("Ctrl+Z = interrupt agent · Ctrl+Q = quit · /help for commands")
+        self.query_one("#status", StatusBar).model_text = self.session.model
         self.query_one("#input", InputBar).focus()
         self.run_worker(self._run_orchestrator(), exclusive=True)
         self.run_worker(self._check_update())
@@ -141,6 +146,15 @@ class SupervisApp(App):
                 status.queue_count = d.get("count", 0)
             case EventType.SUMMARY:
                 log.write_system("Conversation history summarized.")
+            case EventType.MODEL_SWITCH:
+                model = d.get("model", "")
+                escalated = model == self.session.pro_model
+                status.model_text = f"{model} ↑" if escalated else model
+                reason = d.get("reason", "")
+                if escalated:
+                    log.write_system(f"↑ escalated to {model}" + (f": {reason}" if reason else ""))
+                elif reason:
+                    log.write_system(f"↓ back to {model}")
 
     # ─── Input handling ──────────────────────────────────────────────────
 

@@ -1,12 +1,12 @@
 # supervis — full documentation
 
-DeepSeek-powered supervisor that drives Claude Code autonomously through software projects. Version 1.1.1.
+DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Version 1.2.0.
 
 ## What it is
 
 supervis is a TUI tool that sits between you and Claude Code. Instead of writing prompts for Claude Code yourself, you tell supervis what you want and DeepSeek manages the entire execution: planning steps, sending tasks to Claude Code, verifying results, and continuing until the job is done. You watch it all happen in real time.
 
-You can choose between three model profiles (deepseek-chat with thinking, deepseek-chat without thinking, and deepseek-reasoner) and switch mid-session. Configuration is TOML-based with global, per-project, and environment variable layers. Cost budgets let you cap session spending.
+supervis runs on two DeepSeek V4 models and tiers between them automatically: routine steps run on the cheap, fast `deepseek-v4-flash`, and it escalates to `deepseek-v4-pro` for hard architectural decisions or when Claude Code gets stuck and the plan needs rethinking. You can pin a model with `/model` or leave tiering on. Configuration is TOML-based with global, per-project, and environment variable layers. Cost budgets let you cap session spending.
 
 ## Install
 
@@ -51,8 +51,10 @@ supervis uses TOML config files with layered resolution. Each layer overrides th
 
 ```toml
 api_key = "sk-..."
-model = "deepseek-chat"
+model = "deepseek-v4-flash"
+pro_model = "deepseek-v4-pro"
 thinking = true
+auto_escalate = true
 
 [behavior]
 max_cost = 1.00
@@ -66,8 +68,10 @@ All settings can also be written as flat keys (without the `[behavior]` section)
 ### Available settings
 
 * `api_key` — DeepSeek API key
-* `model` — default model (`deepseek-chat` or `deepseek-reasoner`)
-* `thinking` — enable thinking mode for deepseek-chat (true/false)
+* `model` — base/driver model, used for routine steps (default `deepseek-v4-flash`)
+* `pro_model` — escalation model, used for hard moments (default `deepseek-v4-pro`)
+* `thinking` — enable thinking mode (true/false)
+* `auto_escalate` — let supervis escalate to pro automatically when stuck (default true)
 * `max_cost` — session cost limit in USD. Warns at 80%, stops at 100%.
 * `shell_timeout` — seconds before shell commands time out (default: 15)
 * `claude_timeout` — seconds before Claude Code subprocess is killed (default: 300)
@@ -76,8 +80,12 @@ All settings can also be written as flat keys (without the `[behavior]` section)
 ### Environment variable overrides
 
 * `DEEPSEEK_API_KEY` — API key (overrides config file)
-* `SUPERVIS_MODEL` — model name (overrides config file)
+* `SUPERVIS_MODEL` — base model name (overrides config file)
+* `SUPERVIS_PRO_MODEL` — escalation model name (overrides config file)
 * `SUPERVIS_THINKING` — "true"/"false"/"1"/"0" (overrides config file)
+* `SUPERVIS_AUTO_ESCALATE` — "true"/"false"/"1"/"0" (overrides config file)
+
+The legacy ids `deepseek-chat` and `deepseek-reasoner` retire 2026-07-24; if a config still names them, supervis remaps to `deepseek-v4-flash` at load and prints a notice.
 
 ### Migration
 
@@ -95,21 +103,26 @@ Enter your API key: sk-...
 Saved to ~/.config/supervis/config.toml
 ```
 
-## Model switching
+## Model tiering, escalation, and self-correction
 
-Switch models mid-session with `/model`:
+supervis decides which model to use turn by turn. Routine steps run on the base tier
+(`deepseek-v4-flash`); supervis escalates to the pro tier (`deepseek-v4-pro`) in two ways:
 
-* `chat` — deepseek-chat with thinking enabled, 8K max output. Good balance of planning and speed.
-* `chat-fast` — deepseek-chat without thinking. Faster responses, less planning overhead.
-* `reasoner` — deepseek-reasoner. Thinking is built into the model, 64K max output. Best for complex multi-step reasoning.
+* **Self-requested** — facing a genuinely hard or architectural decision, the supervisor calls its `escalate` tool with a reason, and the next turn reasons on pro with full context. On pro turns supervis also raises `reasoning_effort` to `high`.
+* **Automatic (self-correction)** — supervis watches each `run_claude` result. When Claude Code keeps failing the same way (errors, timeouts, or the identical step repeating), the failure streak crosses a threshold and supervis escalates on its own, injecting a one-time "stop, diagnose the root cause, re-plan" note so it rethinks instead of grinding the same broken approach. Once a step succeeds, it falls back to flash to keep costs down. If it stays stuck past a hard cap, it surfaces a message asking you to step in.
+
+Manual override with `/model` (pins a model and disables auto-tiering) and `/auto`:
 
 ```
-/model chat-fast     switch to fast mode
-/model reasoner      switch to reasoner
-/model               show current model
+/model flash         pin deepseek-v4-flash (flash-fast skips thinking)
+/model pro           pin deepseek-v4-pro (pro-fast skips thinking)
+/model auto          return to automatic tiering
+/model               show active tier and tiering state
+/auto on | off       toggle automatic escalation
 ```
 
-Set the default in config with `model` and `thinking` keys. The `/model` command overrides the default for the current session only.
+The status bar shows the active model, with `↑` when escalated. Set defaults in config with
+`model`, `pro_model`, and `auto_escalate`.
 
 ## Project instructions (.supervis/)
 
@@ -134,8 +147,9 @@ You can also place a `config.toml` in `.supervis/` for per-project settings (dif
 ## Commands
 
 * `/reset` — Reset Claude Code session and conversation history
-* `/model` — Switch model: `/model chat | chat-fast | reasoner`
-* `/status` — Show session info (model, cost, uptime, message count)
+* `/model` — Pin a model or return to auto: `/model flash | flash-fast | pro | pro-fast | auto`
+* `/auto` — Toggle automatic pro-escalation: `/auto on | off`
+* `/status` — Show session info (model tier, cost, uptime, message count)
 * `/config` — Show current configuration values
 * `/budget` — Show cost vs. budget limit
 * `/export` — Export conversation: `/export md | json`
@@ -155,10 +169,9 @@ Shown in the status bar and after each DeepSeek response:
 in 12.3k  4.1k cached · out 0.8k · $0.0031
 ```
 
-DeepSeek V3.2 pricing:
-* Input: $0.28/1M tokens
-* Input (cache hit): $0.028/1M tokens
-* Output: $0.42/1M tokens
+DeepSeek V4 pricing (per 1M tokens), priced per tier as the session mixes them:
+* flash — input $0.14 · cache hit $0.0028 · output $0.28
+* pro — input $0.435 · cache hit $0.003625 · output $0.87
 
 ### Cost budget
 
@@ -195,7 +208,8 @@ supervisor/
   session.py       — Session + CostTracker dataclasses (replaces module-level globals)
   events.py        — EventBus singleton with typed event dataclasses
   commands.py      — Slash command registry with decorator-based registration
-  tools.py         — Tool definitions and implementations for DeepSeek
+  tools.py         — Tool definitions (run_claude, escalate, ...) and implementations
+  pricing.py       — Per-model DeepSeek token prices (single source of truth)
   version_check.py — Non-blocking PyPI update checker
   queue.py         — MessageQueue with cancel/list support (replaces asyncio.Queue)
   logging_config.py — File-based logging with rotation
@@ -205,16 +219,15 @@ supervisor/
     status_bar.py  — Static widget with reactive properties
     stream_display.py — Static widget for live streaming display (updates in place)
   config.py        — TOML config system: load, merge, migrate, env overrides
-  cost.py          — Token counting (backward compat wrapper, delegates to CostTracker)
   memory.py        — Conversation summarization when history grows
   prompts.py       — DeepSeek system prompt
 ```
 
 ### Session state
 
-The `Session` dataclass holds all mutable state for one supervisor run: the OpenAI client, message history, cost tracker, interrupt event, model config, and limits. This replaced scattered module-level globals from earlier versions.
+The `Session` dataclass holds all mutable state for one supervisor run: the OpenAI client, message history, cost tracker, interrupt event, the model-tiering state (base/pro models, escalation counters, pin), and limits. It also carries the tiering logic — `select_turn_model()` picks flash or pro each turn, and `note_claude_result()` classifies each Claude Code outcome to drive self-correction.
 
-`CostTracker` is a separate dataclass that handles token counting and cost calculation with DeepSeek V3.2 pricing.
+`CostTracker` is a separate dataclass that counts tokens and accrues cost. It looks up each model's rate from `pricing.py` at record time, so a session that mixes flash and pro tokens is billed correctly per tier.
 
 ## Error handling
 

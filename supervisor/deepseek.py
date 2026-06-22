@@ -28,10 +28,16 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
     # Strip reasoning_content from older turns before sending
     session.strip_old_reasoning()
 
-    # Thinking mode: only for deepseek-chat when thinking=True
-    # deepseek-reasoner has thinking built-in, extra_body would be redundant
-    extra_body = None
-    if session.model == "deepseek-chat" and session.thinking:
+    # Thinking mode: both V4 models toggle it the same way via extra_body.
+    # On pro turns we also raise the reasoning effort, since pro is only used
+    # for the hard moments where the extra deliberation is worth paying for.
+    extra_body: dict | None = None
+    if session.model.startswith("deepseek-v4"):
+        extra_body = {"thinking": {"type": "enabled" if session.thinking else "disabled"}}
+        if session.model == session.pro_model and session.thinking:
+            extra_body["reasoning_effort"] = session.reasoning_effort
+    elif session.thinking:
+        # Legacy deepseek-chat fallback (retires 2026-07-24)
         extra_body = {"thinking": {"type": "enabled"}}
 
     response = await session.client.chat.completions.create(  # type: ignore[call-overload]
@@ -53,7 +59,7 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
         if chunk.usage:
             u = chunk.usage
             cached = getattr(u.prompt_tokens_details, "cached_tokens", 0) or 0
-            session.cost.record(u.prompt_tokens, u.completion_tokens, cached)
+            session.cost.record(u.prompt_tokens, u.completion_tokens, cached, session.model)
 
         choice = chunk.choices[0] if chunk.choices else None
         if not choice:
@@ -134,6 +140,11 @@ async def run_agent_loop(session: Session) -> None:
     logger.debug("agent loop start")
     turn = 0
     while True:
+        # Pick flash vs pro for this turn (tiering / escalation) before calling out.
+        changed, reason = session.select_turn_model()
+        if changed:
+            emit(EventType.MODEL_SWITCH, model=session.model, reason=reason)
+
         try:
             content, tool_calls, reasoning = await stream_turn(
                 session,
@@ -198,6 +209,10 @@ async def run_agent_loop(session: Session) -> None:
             )
             executed_ids.add(tc["id"])
 
+            # Self-correction: watch how Claude Code did and escalate if stuck.
+            if tc["name"] == "run_claude":
+                session.note_claude_result(args.get("prompt", ""), str(result))
+
         for tc in tool_calls:
             if tc["id"] not in executed_ids:
                 session.messages.append(
@@ -207,3 +222,14 @@ async def run_agent_loop(session: Session) -> None:
                         "content": "(interrupted by user)",
                     }
                 )
+
+        # Inject a one-time replan nudge when the failure streak triggered escalation.
+        nudge = session.consume_nudge()
+        if nudge:
+            session.messages.append({"role": "user", "content": nudge})
+            emit(EventType.STATUS, text="supervis: stepping back to re-plan after repeated failures")
+        if session.consume_stuck_alert():
+            emit(
+                EventType.STATUS,
+                text="supervis looks stuck. Send a hint, or /model pro to steer it yourself.",
+            )

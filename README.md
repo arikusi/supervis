@@ -146,10 +146,11 @@ You tell supervis what you want. supervis tells Claude Code how to build it.
 
 | Command | What it does |
 |---------|-------------|
-| `/model chat` | DeepSeek-chat with thinking, best quality (default) |
-| `/model chat-fast` | DeepSeek-chat without thinking, faster |
-| `/model reasoner` | DeepSeek-reasoner, maximum reasoning, 64K output |
-| `/status` | Model, cost, uptime, message count |
+| `/model` | Show the active tier and tiering state |
+| `/model flash` \| `pro` | Pin a model (`flash-fast`/`pro-fast` skip thinking) |
+| `/model auto` | Return to automatic tiering (flash, pro on escalation) |
+| `/auto on` \| `off` | Toggle automatic escalation to pro |
+| `/status` | Model tier, cost, uptime, message count |
 | `/budget` | Cost vs. budget limit |
 | `/export md` or `json` | Export conversation to file |
 | `/undo` | Git stash or revert last changes |
@@ -161,6 +162,17 @@ You tell supervis what you want. supervis tells Claude Code how to build it.
 
 `Ctrl+Z` interrupts the running agent. `Ctrl+Q` quits. Up/down arrows cycle through input history.
 
+## Model tiering & self-correction
+
+supervis runs on two DeepSeek V4 models and decides which one to use turn by turn, the way a lead splits work between routine calls and the hard ones.
+
+Routine "drive Claude Code" steps run on **deepseek-v4-flash** — fast and cheap. supervis escalates to **deepseek-v4-pro** in two cases:
+
+1. **It asks for help.** Facing a genuinely hard or architectural decision, supervis calls its `escalate` tool and the next step reasons on pro with full context.
+2. **It gets stuck.** When Claude Code keeps failing the same way (errors, timeouts, or the same step repeating), supervis escalates on its own, drops a "stop, diagnose the root cause, re-plan" note into the conversation, and rethinks on pro instead of grinding the same broken approach. Once things recover, it falls back to flash to keep costs down.
+
+The status bar shows the active tier, with `↑` when escalated. You stay in control: `/model pro` pins a model, `/model auto` hands tiering back to supervis, and `/auto off` disables automatic escalation entirely.
+
 ## Configuration
 
 TOML config, layered: built-in defaults → `~/.config/supervis/config.toml` → `.supervis/config.toml` → environment variables.
@@ -170,8 +182,10 @@ TOML config, layered: built-in defaults → `~/.config/supervis/config.toml` →
 
 ```toml
 api_key = "sk-..."
-model = "deepseek-chat"
+model = "deepseek-v4-flash"   # base/driver tier
+pro_model = "deepseek-v4-pro" # escalation tier
 thinking = true
+auto_escalate = true
 
 [behavior]
 max_cost = 1.00
@@ -185,20 +199,23 @@ truncation_limit = 4000
 <summary>Per-project override</summary>
 
 ```toml
-model = "deepseek-reasoner"
+model = "deepseek-v4-pro"   # run a tricky project on pro by default
+auto_escalate = false       # ...and don't auto-tier
 
 [behavior]
 max_cost = 2.00
 ```
 </details>
 
-**Environment variables:** `DEEPSEEK_API_KEY`, `SUPERVIS_MODEL`, `SUPERVIS_THINKING`
+**Environment variables:** `DEEPSEEK_API_KEY`, `SUPERVIS_MODEL`, `SUPERVIS_PRO_MODEL`, `SUPERVIS_THINKING`, `SUPERVIS_AUTO_ESCALATE`
 
 **Cost budget:** Set `max_cost` to cap spending. supervis warns at 80% and stops at 100%.
 
+> The legacy `deepseek-chat` / `deepseek-reasoner` ids retire on 2026-07-24. If your config still names them, supervis transparently maps them to `deepseek-v4-flash` and prints a one-line notice.
+
 ## Cost
 
-DeepSeek pricing: **$0.28/1M input** · $0.028/1M cached · **$0.42/1M output**. How much you spend depends on the task. Simple changes take fewer turns, complex features take more. The status bar tracks cost in real time so there are no surprises.
+DeepSeek V4 pricing per 1M tokens — **flash:** $0.14 input · $0.0028 cached · $0.28 output; **pro:** $0.435 input · $0.003625 cached · $0.87 output. Because routine steps stay on flash and pro is reserved for the hard moments, most of a session is billed at flash rates. The status bar tracks cost in real time, priced per tier, so there are no surprises.
 
 ## What it doesn't do
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from supervisor.memory import _clean_for_summarize, summarize_if_needed
+from supervisor.memory import _clean_for_summarize, _safe_tail_start, summarize_if_needed
 from supervisor.session import Session
 
 
@@ -39,6 +39,34 @@ class TestCleanForSummarize:
         msgs = [{"role": "assistant", "content": "x", "reasoning_content": "y"}]
         _clean_for_summarize(msgs)
         assert "reasoning_content" in msgs[0]
+
+
+class TestSafeTailStart:
+    def test_avoids_orphan_tool_message(self):
+        # tail boundary would land on a tool result; must walk back to the user
+        msgs = [
+            {"role": "system"},
+            {"role": "user"},
+            {"role": "assistant", "tool_calls": [{}]},
+            {"role": "tool"},
+            {"role": "tool"},
+        ]
+        # keep=2 → raw start is index 3 (a tool message) → walk back to user at 1
+        assert _safe_tail_start(msgs, keep=2) == 1
+
+    def test_lands_on_user_when_safe(self):
+        msgs = [{"role": "system"}] + [
+            {"role": "user"},
+            {"role": "assistant"},
+            {"role": "user"},
+            {"role": "assistant"},
+        ]
+        # keep=2 → start index 3 is a user message, used as-is
+        assert _safe_tail_start(msgs, keep=2) == 3
+
+    def test_no_user_returns_one(self):
+        msgs = [{"role": "system"}, {"role": "assistant"}, {"role": "tool"}]
+        assert _safe_tail_start(msgs, keep=1) == 1
 
 
 @pytest.mark.asyncio

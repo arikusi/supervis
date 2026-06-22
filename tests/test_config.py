@@ -13,7 +13,9 @@ from supervisor.config import (
 class TestConfig:
     def test_defaults(self):
         c = Config()
-        assert c.model == "deepseek-chat"
+        assert c.model == "deepseek-v4-flash"
+        assert c.pro_model == "deepseek-v4-pro"
+        assert c.auto_escalate is True
         assert c.thinking is True
         assert c.max_cost is None
         assert c.shell_timeout == 15
@@ -95,7 +97,7 @@ class TestLoadConfig:
     def test_global_config(self, tmp_path, monkeypatch):
         config_dir = tmp_path / ".config" / "supervis"
         config_dir.mkdir(parents=True)
-        (config_dir / "config.toml").write_text('api_key = "sk-global"\nmodel = "deepseek-reasoner"\n')
+        (config_dir / "config.toml").write_text('api_key = "sk-global"\nmodel = "deepseek-v4-pro"\n')
 
         monkeypatch.setattr("supervisor.config._GLOBAL_CONFIG_FILE", config_dir / "config.toml")
         monkeypatch.setattr("supervisor.config._OLD_CONFIG_FILE", config_dir / "old_config")
@@ -105,17 +107,17 @@ class TestLoadConfig:
 
         config = load_config()
         assert config.api_key == "sk-global"
-        assert config.model == "deepseek-reasoner"
+        assert config.model == "deepseek-v4-pro"
 
     def test_project_overrides_global(self, tmp_path, monkeypatch):
         config_dir = tmp_path / ".config" / "supervis"
         config_dir.mkdir(parents=True)
-        (config_dir / "config.toml").write_text('api_key = "sk-global"\nmodel = "deepseek-chat"\n')
+        (config_dir / "config.toml").write_text('api_key = "sk-global"\nmodel = "deepseek-v4-flash"\n')
 
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
         (project_dir / ".supervis").mkdir()
-        (project_dir / ".supervis" / "config.toml").write_text('model = "deepseek-reasoner"\nthinking = false\n')
+        (project_dir / ".supervis" / "config.toml").write_text('model = "deepseek-v4-pro"\nthinking = false\n')
 
         monkeypatch.setattr("supervisor.config._GLOBAL_CONFIG_FILE", config_dir / "config.toml")
         monkeypatch.setattr("supervisor.config._OLD_CONFIG_FILE", config_dir / "old_config")
@@ -125,7 +127,7 @@ class TestLoadConfig:
 
         config = load_config(str(project_dir))
         assert config.api_key == "sk-global"
-        assert config.model == "deepseek-reasoner"
+        assert config.model == "deepseek-v4-pro"
         assert config.thinking is False
 
     def test_env_overrides_all(self, tmp_path, monkeypatch):
@@ -158,6 +160,32 @@ class TestMigration:
         assert config.api_key == "sk-old"
         assert (config_dir / "config.toml").exists()
         assert (config_dir / "config").exists()  # old file not deleted
+
+
+class TestLegacyMigration:
+    def _load_with_global_model(self, model, tmp_path, monkeypatch):
+        config_dir = tmp_path / ".config" / "supervis"
+        config_dir.mkdir(parents=True)
+        (config_dir / "config.toml").write_text(f'api_key = "sk"\nmodel = "{model}"\n')
+        monkeypatch.setattr("supervisor.config._GLOBAL_CONFIG_FILE", config_dir / "config.toml")
+        monkeypatch.setattr("supervisor.config._OLD_CONFIG_FILE", config_dir / "old_config")
+        for var in ("DEEPSEEK_API_KEY", "SUPERVIS_MODEL", "SUPERVIS_THINKING", "SUPERVIS_AUTO_ESCALATE"):
+            monkeypatch.delenv(var, raising=False)
+        return load_config()
+
+    def test_deepseek_chat_remaps_to_flash(self, tmp_path, monkeypatch):
+        config = self._load_with_global_model("deepseek-chat", tmp_path, monkeypatch)
+        assert config.model == "deepseek-v4-flash"
+        assert config.thinking is False
+
+    def test_deepseek_reasoner_remaps_to_flash_thinking(self, tmp_path, monkeypatch):
+        config = self._load_with_global_model("deepseek-reasoner", tmp_path, monkeypatch)
+        assert config.model == "deepseek-v4-flash"
+        assert config.thinking is True
+
+    def test_v4_model_not_remapped(self, tmp_path, monkeypatch):
+        config = self._load_with_global_model("deepseek-v4-pro", tmp_path, monkeypatch)
+        assert config.model == "deepseek-v4-pro"
 
 
 class TestLoadProjectInstructions:

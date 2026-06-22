@@ -37,6 +37,7 @@ class EventType(Enum):
     INTERRUPT = auto()
     QUEUE_UPDATE = auto()
     SUMMARY = auto()
+    MODEL_SWITCH = auto()
 
 
 @dataclass
