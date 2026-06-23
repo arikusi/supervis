@@ -1,6 +1,6 @@
 # supervis — full documentation
 
-DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Version 1.2.0.
+DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Version 1.2.1.
 
 ## What it is
 
@@ -60,7 +60,7 @@ auto_escalate = true
 max_cost = 1.00
 shell_timeout = 15
 claude_timeout = 300
-truncation_limit = 4000
+truncation_limit = 16000
 ```
 
 All settings can also be written as flat keys (without the `[behavior]` section) for convenience.
@@ -75,7 +75,7 @@ All settings can also be written as flat keys (without the `[behavior]` section)
 * `max_cost` — session cost limit in USD. Warns at 80%, stops at 100%.
 * `shell_timeout` — seconds before shell commands time out (default: 15)
 * `claude_timeout` — seconds before Claude Code subprocess is killed (default: 300)
-* `truncation_limit` — max characters from Claude output sent to DeepSeek (default: 4000)
+* `truncation_limit` — max characters from Claude output sent to DeepSeek (default: 16000)
 
 ### Environment variable overrides
 
@@ -233,7 +233,7 @@ The `Session` dataclass holds all mutable state for one supervisor run: the Open
 
 * DeepSeek API errors (429 rate limit, 5xx server errors) retry up to 3 times with exponential backoff.
 * Interrupted tool calls get placeholder results so the message history stays valid.
-* Claude Code output truncated to `truncation_limit` chars before sending to DeepSeek (full output displayed in TUI).
+* Claude Code output over `truncation_limit` chars (default 16000) is capped before sending to DeepSeek, with a note that the output is complete and the cap is only a display limit; the full output is always displayed in the TUI.
 * Claude Code subprocess killed after `claude_timeout` seconds (default 300) if hanging.
 * Conversation history summarized when it exceeds 40 messages.
 * Event subscriber errors are logged instead of silently swallowed.

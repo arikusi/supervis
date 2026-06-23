@@ -191,7 +191,7 @@ auto_escalate = true
 max_cost = 1.00
 shell_timeout = 15
 claude_timeout = 300
-truncation_limit = 4000
+truncation_limit = 16000
 ```
 </details>
 
