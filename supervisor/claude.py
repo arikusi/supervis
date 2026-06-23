@@ -174,8 +174,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
         # a cutoff and made the supervisor ask Claude to "continue" in a loop, so
         # spell out that this is a display limit, not a truncated answer.
         return (
-            full[:truncation]
-            + f"\n\n[supervis note: Claude's full reply was {len(full)} chars; "
+            full[:truncation] + f"\n\n[supervis note: Claude's full reply was {len(full)} chars; "
             f"only the first {truncation} are shown here to bound context. "
             "This is a display limit, NOT a cutoff — Claude finished its work. "
             "Treat the output as complete; do not ask Claude to continue or resume.]"
