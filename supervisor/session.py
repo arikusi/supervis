@@ -115,7 +115,7 @@ class Session:
     max_cost: float | None = None
     shell_timeout: int = 15
     claude_timeout: int = 300
-    truncation_limit: int = 4000
+    truncation_limit: int = 16000
 
     # Tracking
     start_time: float = field(default_factory=time.time)

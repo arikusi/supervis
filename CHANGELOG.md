@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 (2026-06-23)
+
+### Fixed
+
+* **Worker output reached the supervisor truncated.** Claude Code's reply was streamed to the UI in full, but the value handed back to the supervisor was capped at 4000 characters with a `... (truncated)` marker. On long replies the supervisor saw a cut-off answer and kept telling Claude to "continue" work that was already done. The cap is raised to 16000 characters, and when it does apply the forwarded note now states plainly that this is a display limit and the worker's output is complete — so the supervisor stops looping.
+
 ## 1.2.0 (2026-06-22)
 
 ### Added

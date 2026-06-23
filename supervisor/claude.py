@@ -36,7 +36,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     # Determine first-call state
     is_first = session.claude_first if session else _claude_first
     timeout = session.claude_timeout if session else 300
-    truncation = session.truncation_limit if session else 4000
+    truncation = session.truncation_limit if session else 16000
 
     cmd = [
         "claude",
@@ -169,5 +169,15 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
 
     full = "\n".join(chunks) or "(no output)"
     if len(full) > truncation:
-        return full[:truncation] + f"\n... (truncated, {len(full)} chars total)"
+        # IMPORTANT: only the head is forwarded to the supervisor to bound its
+        # context, but the worker's reply was complete. The old marker read like
+        # a cutoff and made the supervisor ask Claude to "continue" in a loop, so
+        # spell out that this is a display limit, not a truncated answer.
+        return (
+            full[:truncation]
+            + f"\n\n[supervis note: Claude's full reply was {len(full)} chars; "
+            f"only the first {truncation} are shown here to bound context. "
+            "This is a display limit, NOT a cutoff — Claude finished its work. "
+            "Treat the output as complete; do not ask Claude to continue or resume.]"
+        )
     return full

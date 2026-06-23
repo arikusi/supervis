@@ -33,7 +33,7 @@ class Config:
     max_cost: float | None = None
     shell_timeout: int = 15
     claude_timeout: int = 300
-    truncation_limit: int = 4000
+    truncation_limit: int = 16000
 
 
 def _read_toml(path: Path) -> dict:  # type: ignore[type-arg]

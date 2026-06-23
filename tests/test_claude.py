@@ -52,15 +52,19 @@ async def test_short_output_not_truncated():
 
 @pytest.mark.asyncio
 async def test_long_output_truncated():
-    long_text = "x" * 6000
+    long_text = "x" * 20000
     mock_proc = _make_mock_proc([_make_stream_line(long_text)])
 
     with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
         result = await run_claude("test prompt", continue_session=False)
 
-    assert len(result) < 6000
-    assert "truncated" in result
-    assert "6000 chars total" in result
+    assert len(result) < 20000
+    # The forwarded head is bounded, but the note must tell the supervisor the
+    # reply was complete so it does not loop asking Claude to "continue".
+    assert "supervis note" in result
+    assert "20000 chars" in result
+    assert "NOT a cutoff" in result
+    assert "do not ask Claude to continue" in result
 
 
 @pytest.mark.asyncio
