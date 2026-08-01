@@ -8,6 +8,7 @@ from textual.widgets import Footer, Header, Input
 from .claude import get_proc, reset_session
 from .commands import dispatch, get_help
 from .config import Config
+from .deepseek import DEEPSEEK_BASE_URL, REQUEST_TIMEOUT
 from .events import Event, EventType, emit, subscribe, unsubscribe
 from .queue import MessageQueue
 from .session import Session
@@ -51,7 +52,12 @@ class SupervisApp(App):
         # Create session from config
         if config is None:
             config = Config()
-        client = AsyncOpenAI(api_key=config.api_key, base_url="https://api.deepseek.com")
+        client = AsyncOpenAI(
+            api_key=config.api_key,
+            base_url=DEEPSEEK_BASE_URL,
+            timeout=REQUEST_TIMEOUT,
+            max_retries=0,  # stream_turn does its own retry with backoff
+        )
         self.session = Session(
             client=client,
             model=config.model,
@@ -123,7 +129,7 @@ class SupervisApp(App):
                 log.write_deepseek_error(d.get("error", ""))
                 status.thinking = False
             case EventType.DEEPSEEK_RETRY:
-                log.write_deepseek_retry(d.get("status", 0), d.get("wait", 0))
+                log.write_deepseek_retry(d.get("reason", "API error"), d.get("wait", 0))
             case EventType.CLAUDE_START:
                 log.write_claude_start(d.get("prompt", ""))
             case EventType.CLAUDE_TEXT:

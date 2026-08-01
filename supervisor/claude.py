@@ -1,9 +1,11 @@
 """Claude Code subprocess management."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
+import shutil
 
 from .events import EventType, emit
 
@@ -11,6 +13,16 @@ logger = logging.getLogger(__name__)
 
 # Module-level fallback for backward compat (used when no session passed)
 _claude_first = True
+
+# Grace period for the process to exit once stdout has closed. The worker is
+# done writing at that point, so this only guards against a child that refuses
+# to leave — it is deliberately much shorter than the idle timeout.
+_EXIT_GRACE = 10
+
+
+def claude_available() -> bool:
+    """True when the Claude Code CLI is on PATH."""
+    return shutil.which("claude") is not None
 
 
 def reset_session(session=None) -> None:
@@ -28,6 +40,12 @@ def get_proc(session=None):  # type: ignore[no-untyped-def]
     return None
 
 
+async def _reap(proc, timeout: int = 5) -> None:
+    """Best-effort wait for a killed/terminated child so it isn't left a zombie."""
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
+
+
 async def run_claude(prompt: str, continue_session: bool = True, session=None) -> str:
     global _claude_first
 
@@ -35,7 +53,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
 
     # Determine first-call state
     is_first = session.claude_first if session else _claude_first
-    timeout = session.claude_timeout if session else 300
+    idle_timeout = session.claude_timeout if session else 1800
     truncation = session.truncation_limit if session else 16000
 
     cmd = [
@@ -87,10 +105,33 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
 
     chunks: list[str] = []
     tool_count = 0
+    stalled = False
 
     try:
         assert proc.stdout is not None
-        async for raw in proc.stdout:
+        while True:
+            # Each read is bounded, so a worker that hangs mid-task is caught.
+            # A plain `async for` over stdout would block forever and the exit
+            # timeout below would never be reached.
+            #
+            # The budget is silence, not total run time. Claude Code emits a line
+            # per assistant turn and per tool result, so it goes quiet for exactly
+            # as long as its current tool takes — a full test suite or a container
+            # build is minutes of legitimate silence. Hence the generous default.
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_timeout)
+            except asyncio.TimeoutError:
+                stalled = True
+                break
+            except ValueError:
+                # Single line longer than the stream limit. readline() clears the
+                # buffer before raising, so skipping it is safe.
+                logger.warning("Claude subprocess emitted an over-long line; skipped")
+                continue
+
+            if not raw:
+                break  # EOF
+
             line = raw.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
@@ -137,22 +178,34 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     except asyncio.CancelledError:
         proc.terminate()
         stderr_task.cancel()
+        await _reap(proc)
         raise
     finally:
         if session:
             session.claude_proc = None
 
+    if stalled:
+        proc.kill()
+        await _reap(proc)
+        stderr_task.cancel()
+        logger.warning("Claude subprocess produced no output for %ds; killed", idle_timeout)
+        emit(EventType.CLAUDE_ERROR, error=f"Claude Code timed out ({idle_timeout}s with no output)")
+        # Hand back whatever did arrive — a partial answer beats none, and the
+        # wording keeps the supervisor's failure detection working.
+        note = f"(Claude Code timed out: no output for {idle_timeout}s, subprocess killed)"
+        partial = "\n".join(chunks).strip()
+        return f"{partial}\n\n{note}" if partial else note
+
+    # stdout closed, so the worker is done writing. It should exit promptly.
     try:
-        await asyncio.wait_for(proc.wait(), timeout=timeout)
+        await asyncio.wait_for(proc.wait(), timeout=_EXIT_GRACE)
     except asyncio.TimeoutError:
         proc.kill()
-        await proc.wait()
-        stderr_task.cancel()
-        logger.warning("Claude subprocess timed out after %ds", timeout)
-        emit(EventType.CLAUDE_ERROR, error=f"Claude Code subprocess timed out ({timeout // 60} min)")
-        return f"(Claude Code timed out after {timeout // 60} minutes)"
+        await _reap(proc)
+        logger.warning("Claude subprocess did not exit %ds after closing stdout; killed", _EXIT_GRACE)
 
-    await stderr_task
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(stderr_task, timeout=5)
 
     logger.debug("Claude subprocess done (tool_count=%d, rc=%s)", tool_count, proc.returncode)
     emit(EventType.CLAUDE_DONE, tool_count=tool_count)

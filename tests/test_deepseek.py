@@ -2,9 +2,11 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+from openai import APIConnectionError, APITimeoutError
 
-from supervisor.deepseek import run_agent_loop, stream_turn
+from supervisor.deepseek import _retry_plan, run_agent_loop, stream_turn
 from supervisor.session import Session
 
 
@@ -81,6 +83,69 @@ class TestRetryLogic:
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with pytest.raises(FakeAPIError):
                     await stream_turn(session)
+
+    @pytest.mark.asyncio
+    async def test_retries_on_connection_error(self):
+        """Dropped connections carry no status code and used to be fatal."""
+        call_count = 0
+
+        async def mock_api_call(session, quiet=False):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise APIConnectionError(request=httpx.Request("POST", "https://api.deepseek.com"))
+            return "recovered", [], ""
+
+        session = _make_session([{"role": "system", "content": "sys"}])
+        with patch("supervisor.deepseek._api_call", side_effect=mock_api_call):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                content, _, _ = await stream_turn(session)
+
+        assert call_count == 2
+        assert content == "recovered"
+
+    @pytest.mark.asyncio
+    async def test_retries_on_read_timeout(self):
+        """APITimeoutError subclasses APIConnectionError, so it retries too."""
+        call_count = 0
+
+        async def mock_api_call(session, quiet=False):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise APITimeoutError(request=httpx.Request("POST", "https://api.deepseek.com"))
+            return "recovered", [], ""
+
+        session = _make_session([{"role": "system", "content": "sys"}])
+        with patch("supervisor.deepseek._api_call", side_effect=mock_api_call):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                content, _, _ = await stream_turn(session)
+
+        assert call_count == 2
+        assert content == "recovered"
+
+
+class TestRetryPlan:
+    def test_connection_error_is_retryable(self):
+        exc = APIConnectionError(request=httpx.Request("POST", "https://api.deepseek.com"))
+        plan = _retry_plan(exc, 0)
+        assert plan is not None
+        wait, reason = plan
+        assert wait == 2
+        assert reason == "Connection error"
+
+    def test_retryable_status_reports_the_code(self):
+        assert _retry_plan(FakeAPIError(503), 1) == (4, "API error 503")
+
+    def test_client_error_is_not_retryable(self):
+        assert _retry_plan(FakeAPIError(400), 0) is None
+
+    def test_unknown_exception_is_not_retryable(self):
+        assert _retry_plan(RuntimeError("boom"), 0) is None
+
+    def test_backoff_grows_with_attempt(self):
+        waits = [_retry_plan(FakeAPIError(429), i)[0] for i in range(3)]
+        assert waits == [2, 4, 8]
 
 
 class TestAgentLoop:

@@ -4,14 +4,39 @@ import asyncio
 import json
 import logging
 
+from openai import APIConnectionError
+
 from .events import EventType, emit
 from .session import Session
 from .tools import TOOLS, execute_tool
 
 logger = logging.getLogger(__name__)
 
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+
+# Applied per read, not per request, so a healthy stream can run as long as it
+# likes. Generous on purpose: prefill on a long conversation can take a while to
+# produce the first chunk, and killing a live request costs more than waiting.
+REQUEST_TIMEOUT = 300.0
+
 _RETRYABLE_CODES = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 3
+
+
+def _retry_plan(exc: Exception, attempt: int) -> tuple[int, str] | None:
+    """Return (seconds_to_wait, reason) for a retryable error, else None.
+
+    APITimeoutError subclasses APIConnectionError, so both dropped connections
+    and read timeouts land in the first branch. They carry no status code, which
+    is why checking status alone used to let them through as fatal.
+    """
+    wait = 2 ** (attempt + 1)
+    if isinstance(exc, APIConnectionError):
+        return wait, "Connection error"
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if isinstance(status, int) and status in _RETRYABLE_CODES:
+        return wait, f"API error {status}"
+    return None
 
 
 async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, str]:
@@ -37,7 +62,7 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
         if session.model == session.pro_model and session.thinking:
             extra_body["reasoning_effort"] = session.reasoning_effort
     elif session.thinking:
-        # Legacy deepseek-chat fallback (retires 2026-07-24)
+        # Fallback for any non-V4 id (the legacy chat/reasoner ids were retired 2026-07-24)
         extra_body = {"thinking": {"type": "enabled"}}
 
     response = await session.client.chat.completions.create(  # type: ignore[call-overload]
@@ -119,11 +144,11 @@ async def stream_turn(session: Session, quiet: bool = False) -> tuple[str, list,
             logger.debug("stream_turn done (content=%d chars, tools=%d)", len(result[0]), len(result[1]))
             return result
         except Exception as e:
-            status = getattr(e, "status_code", None) or getattr(e, "code", None)
-            if isinstance(status, int) and status in _RETRYABLE_CODES and attempt < _MAX_RETRIES - 1:
-                wait = 2 ** (attempt + 1)
-                logger.warning("API error %s, retry %d/%d in %ds", status, attempt + 1, _MAX_RETRIES, wait)
-                emit(EventType.DEEPSEEK_RETRY, status=status, wait=wait)
+            plan = _retry_plan(e, attempt)
+            if plan and attempt < _MAX_RETRIES - 1:
+                wait, reason = plan
+                logger.warning("%s, retry %d/%d in %ds", reason, attempt + 1, _MAX_RETRIES, wait)
+                emit(EventType.DEEPSEEK_RETRY, reason=reason, wait=wait)
                 await asyncio.sleep(wait)
                 continue
             logger.exception("API call failed (non-retryable)")

@@ -162,6 +162,8 @@ You tell supervis what you want. supervis tells Claude Code how to build it.
 
 `Ctrl+Z` interrupts the running agent. `Ctrl+Q` quits. Up/down arrows cycle through input history.
 
+From the shell: `supervis /path/to/project` works on a directory other than the current one, `--debug` mirrors the log to stderr, and `--version` / `--help` do what you would expect.
+
 ## Model tiering & self-correction
 
 supervis runs on two DeepSeek V4 models and decides which one to use turn by turn, the way a lead splits work between routine calls and the hard ones.
@@ -190,7 +192,7 @@ auto_escalate = true
 [behavior]
 max_cost = 1.00
 shell_timeout = 15
-claude_timeout = 300
+claude_timeout = 1800
 truncation_limit = 16000
 ```
 </details>
@@ -209,9 +211,13 @@ max_cost = 2.00
 
 **Environment variables:** `DEEPSEEK_API_KEY`, `SUPERVIS_MODEL`, `SUPERVIS_PRO_MODEL`, `SUPERVIS_THINKING`, `SUPERVIS_AUTO_ESCALATE`
 
+**`claude_timeout` is an idle timeout,** not a cap on total run time. A Claude Code task that keeps producing output runs as long as it needs; the clock only starts when it goes quiet. If it does stall, supervis kills the subprocess and hands back whatever output arrived before that.
+
+The default is deliberately long (30 minutes). Claude Code emits a line per assistant turn and per tool result, so it stays silent for exactly as long as its current tool takes — a full test suite, a release build, or a container image is minutes of perfectly healthy silence. The timeout exists to catch a wedged process, not to bound your build. Lower it if you want faster detection and your tasks are short.
+
 **Cost budget:** Set `max_cost` to cap spending. supervis warns at 80% and stops at 100%.
 
-> The legacy `deepseek-chat` / `deepseek-reasoner` ids retire on 2026-07-24. If your config still names them, supervis transparently maps them to `deepseek-v4-flash` and prints a one-line notice.
+> The legacy `deepseek-chat` / `deepseek-reasoner` ids were retired on 2026-07-24. If your config still names them, supervis transparently maps them to `deepseek-v4-flash` and prints a one-line notice.
 
 ## Cost
 

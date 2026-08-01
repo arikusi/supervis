@@ -19,7 +19,7 @@ class TestConfig:
         assert c.thinking is True
         assert c.max_cost is None
         assert c.shell_timeout == 15
-        assert c.claude_timeout == 300
+        assert c.claude_timeout == 1800
 
 
 class TestApplyToml:

@@ -1,20 +1,50 @@
 """CLI entry point."""
 
+import argparse
 import os
 import sys
 from pathlib import Path
 
+from . import __version__
 
-def main() -> None:
-    # Parse --debug flag before anything else
-    debug = "--debug" in sys.argv
-    args = [a for a in sys.argv[1:] if a != "--debug"]
+_CLAUDE_MISSING = (
+    "Claude Code CLI not found on PATH.\n"
+    "supervis drives `claude` as a local subprocess, so it has to be installed first:\n"
+    "  https://docs.anthropic.com/en/docs/claude-code"
+)
 
-    project_dir = args[0] if args else os.getcwd()
-    project_dir = str(Path(project_dir).resolve())
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="supervis",
+        description="DeepSeek supervisor that drives Claude Code through your project.",
+    )
+    parser.add_argument(
+        "project_dir",
+        nargs="?",
+        default=None,
+        metavar="DIRECTORY",
+        help="project to work in (default: current directory)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="also write debug logs to stderr",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"supervis {__version__}",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+
+    project_dir = str(Path(args.project_dir or os.getcwd()).resolve())
     if not Path(project_dir).is_dir():
-        print(f"Directory not found: {project_dir}")
+        print(f"Directory not found: {project_dir}", file=sys.stderr)
         sys.exit(1)
 
     os.chdir(project_dir)
@@ -22,7 +52,15 @@ def main() -> None:
     # Set up logging before anything else
     from .logging_config import setup_logging
 
-    setup_logging(debug=debug)
+    setup_logging(debug=args.debug)
+
+    # Nothing to supervise without the worker. Fail here with something readable
+    # instead of burying a FileNotFoundError in the first tool result.
+    from .claude import claude_available
+
+    if not claude_available():
+        print(_CLAUDE_MISSING, file=sys.stderr)
+        sys.exit(1)
 
     # Load config (TOML, layered)
     from .config import load_config, load_project_instructions, prompt_api_key
