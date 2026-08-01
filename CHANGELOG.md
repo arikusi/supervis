@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.2 (2026-08-02)
+
+### Fixed
+
+* **A hung Claude Code process hung supervis with it.** `claude_timeout` was only applied to the process exit, which happens after stdout has already closed. The stdout read itself was unbounded, so a worker that wedged mid-task without closing its pipe blocked the supervisor forever and the timeout never fired. Every read is now bounded, and `claude_timeout` acts as an idle timeout: a task that keeps producing output runs as long as it needs, one that goes quiet for the full timeout is killed. Output collected before the stall is handed back instead of discarded, and the child is reaped on cancellation rather than left behind.
+* **`supervis --version` and `supervis --help` failed.** Both were read as a project directory and exited with `Directory not found: .../--version`. The CLI now uses argparse.
+* **Network blips killed a turn.** The retry path only recognised errors carrying an HTTP status code, so dropped connections and read timeouts (`APIConnectionError`, `APITimeoutError`) went straight through as fatal. They now retry with the same backoff as 429s and 5xxs. The API client also has an explicit request timeout and its own retry layer disabled, so there is one backoff policy instead of two stacked on each other.
+* **Missing Claude Code CLI produced a confusing failure.** Without `claude` on PATH the resulting `FileNotFoundError` was buried in a tool result and the supervisor treated it as a retryable task failure. supervis now checks at startup and exits with a message pointing at the install docs.
+* **An over-long line from Claude Code could abort the read.** `readline()` raises `ValueError` past the stream limit; that line is now skipped and the run continues.
+
+### Changed
+
+* **`claude_timeout` default raised from 300 to 1800 seconds.** The old value was inherited from a setting that never actually governed the stream, so it was never validated for that job. Claude Code emits a line per assistant turn and per tool result, which means it goes silent for the entire duration of a long tool call — a full test suite, a release build, a container image. At 300 seconds those healthy runs would have been killed. The timeout is there to catch a wedged process, not to bound a build.
+* **DeepSeek request timeout raised to 300 seconds** for the same reason: prefill on a long conversation can take a while to produce the first chunk, and killing a live request costs more than waiting for it.
+* Legacy `deepseek-chat` / `deepseek-reasoner` wording moved to the past tense across code and docs — those ids were retired on 2026-07-24. The remapping stays, so old configs still work.
+* Pricing table re-verified against the published rate card (rates unchanged). Noted DeepSeek's announced 2x peak-hour pricing as a watch item; no effective date has been published.
+* CONTRIBUTING.md brought back in line with the codebase: it still listed the `cost.py` module removed in 1.2.0, named the wrong Python versions, and pointed the clone command at a placeholder URL.
+
 ## 1.2.1 (2026-06-23)
 
 ### Fixed

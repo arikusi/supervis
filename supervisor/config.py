@@ -32,7 +32,7 @@ class Config:
     # Behavior
     max_cost: float | None = None
     shell_timeout: int = 15
-    claude_timeout: int = 300
+    claude_timeout: int = 1800  # idle, not total: seconds of silence before the worker is killed
     truncation_limit: int = 16000
 
 
@@ -143,7 +143,7 @@ def load_config(project_dir: str | None = None) -> Config:
     # Layer 3: env vars (highest priority)
     _apply_env(config)
 
-    # Legacy model ids retire 2026-07-24. Remap so existing configs keep working.
+    # Legacy model ids were retired 2026-07-24. Remap so old configs keep working.
     _migrate_legacy_model(config)
 
     return config
@@ -161,7 +161,7 @@ def _migrate_legacy_model(config: Config) -> None:
     if not mapped:
         return
     new_model, thinking = mapped
-    print(f"Note: '{config.model}' retires 2026-07-24 — using {new_model} instead.")
+    print(f"Note: '{config.model}' was retired on 2026-07-24 — using {new_model} instead.")
     config.model = new_model
     config.thinking = thinking
 

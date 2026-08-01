@@ -50,8 +50,8 @@ class OutputLog(RichLog):
     def write_deepseek_error(self, error: str) -> None:
         self.write(Text(f"[DeepSeek error: {error}]", style="yellow"))
 
-    def write_deepseek_retry(self, status: int, wait: int) -> None:
-        self.write(Text(f"[API error {status}, retrying in {wait}s...]", style="dim yellow"))
+    def write_deepseek_retry(self, reason: str, wait: int) -> None:
+        self.write(Text(f"[{reason}, retrying in {wait}s...]", style="dim yellow"))
 
     # ─── Claude ──────────────────────────────────────────────────────
 

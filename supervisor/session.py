@@ -114,7 +114,7 @@ class Session:
     # Limits
     max_cost: float | None = None
     shell_timeout: int = 15
-    claude_timeout: int = 300
+    claude_timeout: int = 1800
     truncation_limit: int = 16000
 
     # Tracking

@@ -84,7 +84,7 @@ _MODEL_PROFILES = {
     "flash-fast": ("deepseek-v4-flash", False, "deepseek-v4-flash (no thinking, fastest)"),
     "pro": ("deepseek-v4-pro", True, "deepseek-v4-pro (thinking, frontier)"),
     "pro-fast": ("deepseek-v4-pro", False, "deepseek-v4-pro (no thinking)"),
-    # Legacy aliases (retire 2026-07-24) → nearest V4 profile
+    # Legacy aliases (retired 2026-07-24) → nearest V4 profile
     "chat": ("deepseek-v4-flash", True, "deepseek-v4-flash (thinking)"),
     "chat-fast": ("deepseek-v4-flash", False, "deepseek-v4-flash (no thinking)"),
     "reasoner": ("deepseek-v4-pro", True, "deepseek-v4-pro (thinking)"),
