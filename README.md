@@ -87,7 +87,7 @@ Or ask Claude Code: *"install supervis from github.com/arikusi/supervis"*
 
 You need two things:
 * [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed (subscription is enough, no Anthropic API key needed)
-* A [DeepSeek API key](https://platform.deepseek.com/api-keys)
+* A [DeepSeek API key](https://platform.deepseek.com/api-keys), or a key for any other OpenAI-compatible endpoint
 
 supervis calls Claude Code as a local subprocess, not through the API. DeepSeek handles the planning via its own API, which is [remarkably cheap](https://api-docs.deepseek.com/quick_start/pricing) for what it delivers.
 
@@ -186,6 +186,7 @@ TOML config, layered: built-in defaults → `~/.config/supervis/config.toml` →
 
 ```toml
 api_key = "sk-..."
+base_url = "https://api.deepseek.com"  # any OpenAI-compatible endpoint
 model = "deepseek-v4-flash"   # base/driver tier
 pro_model = "deepseek-v4-pro" # escalation tier
 thinking = true
@@ -212,7 +213,32 @@ max_cost = 2.00
 ```
 </details>
 
-**Environment variables:** `DEEPSEEK_API_KEY`, `SUPERVIS_MODEL`, `SUPERVIS_PRO_MODEL`, `SUPERVIS_THINKING`, `SUPERVIS_AUTO_ESCALATE`
+**Environment variables:** `SUPERVIS_API_KEY` (or `DEEPSEEK_API_KEY`), `SUPERVIS_BASE_URL`, `SUPERVIS_MODEL`, `SUPERVIS_PRO_MODEL`, `SUPERVIS_THINKING`, `SUPERVIS_AUTO_ESCALATE`
+
+## Using a different provider
+
+supervis talks to DeepSeek over the plain OpenAI chat-completions API, so any endpoint that speaks the same protocol works: OpenRouter, Moonshot, Zhipu, Together, a local vLLM or Ollama server. Point `base_url` at it and name the model.
+
+```toml
+base_url = "https://openrouter.ai/api/v1"
+api_key = "sk-or-..."
+model = "moonshotai/kimi-k2"
+
+# supervis only ships DeepSeek's rate card, so tell it what yours costs.
+# USD per 1M tokens. Omit `cached` if the provider has no prompt caching.
+[pricing."moonshotai/kimi-k2"]
+input = 0.60
+cached = 0.15
+output = 2.50
+```
+
+Three things change once you leave DeepSeek:
+
+1. **Tiering collapses unless you set it up.** If you name a `model` and leave `pro_model` alone, supervis points both tiers at your model rather than escalating to a DeepSeek id your endpoint has never heard of. Set `pro_model` explicitly to get two tiers back.
+2. **The thinking toggle goes quiet.** `thinking` is a DeepSeek API extension; sending it to another provider is a 400 waiting to happen, so supervis omits it. Use whatever reasoning control your provider offers, usually by picking a reasoning model.
+3. **Costs are counted, not priced,** until you add a `[pricing]` block. The status bar shows tokens and says `cost unknown` rather than quoting DeepSeek's rates for somebody else's model.
+
+`/model <id>` accepts any model id verbatim when you are off DeepSeek, so you can switch mid-session.
 
 **`claude_timeout` is an idle timeout,** not a cap on total run time. A Claude Code task that keeps producing output runs as long as it needs; the clock only starts when it goes quiet. If it does stall, supervis kills the subprocess and hands back whatever output arrived before that.
 
@@ -228,11 +254,13 @@ If a config file has a syntax error, supervis says so on startup instead of sile
 
 DeepSeek V4 pricing per 1M tokens — **flash:** $0.14 input · $0.0028 cached · $0.28 output; **pro:** $0.435 input · $0.003625 cached · $0.87 output. Because routine steps stay on flash and pro is reserved for the hard moments, most of a session is billed at flash rates. The status bar tracks cost in real time, priced per tier, so there are no surprises.
 
+On another provider, supervis counts tokens but will not quote a dollar figure until you give it rates in a `[pricing]` block. A wrong number is worse than no number.
+
 ## What it doesn't do
 
 * It's not magic. Vague prompts get vague results. Be specific about what you want.
 * Claude Code runs with `bypassPermissions` (explained above). It edits files without asking. That's intentional, but be aware.
-* DeepSeek only, for now. It works well. Contributors are welcome to add other providers.
+* Model tiering and thinking control are tuned for DeepSeek. Other providers work (see below), but you supervise the tiering yourself.
 * No session persistence yet. Closing supervis loses the conversation.
 * Large monorepos benefit from a focused `.supervis/SUPERVIS.md`. Without guidance, supervis may wander.
 

@@ -1,6 +1,6 @@
 # supervis
 
-> DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Automatic model tiering (flash for routine steps, pro on escalation), self-correction when stuck, TOML config, cost budgets, full TUI with live output and message queuing.
+> DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Automatic model tiering (flash for routine steps, pro on escalation), self-correction when stuck, turn and cost caps, TOML config, and a full TUI with live output and message queuing. Works with any OpenAI-compatible endpoint, not only DeepSeek.
 
 ## Docs
 
@@ -23,4 +23,4 @@ cd myproject
 supervis
 ```
 
-Requires Claude Code CLI and a DeepSeek API key.
+Requires the Claude Code CLI and a DeepSeek API key (or a key for any other OpenAI-compatible endpoint).

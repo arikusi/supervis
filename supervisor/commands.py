@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .config import DEFAULT_BASE_URL
+
 _commands: dict[str, Callable] = {}
 _help_entries: list[tuple[str, str]] = []
 
@@ -118,6 +120,15 @@ def _cmd_model(app, args: str) -> None:
 
     profile = _MODEL_PROFILES.get(name)
     if not profile:
+        # The named profiles are DeepSeek's. On another endpoint the model id is
+        # whatever that provider calls it, so take the argument verbatim — but
+        # only there, so a typo on DeepSeek still gets caught instead of pinning
+        # a model id that does not exist.
+        if session.base_url != DEFAULT_BASE_URL:
+            session.pin_model(args.strip(), session.thinking)
+            log.write_system(f"Pinned to {args.strip()}")
+            app.query_one("#status", StatusBar).model_text = args.strip()
+            return
         log.write_system(f"Unknown model: {name}. Available: flash, flash-fast, pro, pro-fast, auto")
         return
 
@@ -175,6 +186,7 @@ def _cmd_status(app, args: str) -> None:
         f"Cost: {session.cost.summary()}",
         f"Uptime: {mins}m {secs}s",
         f"Project: {app._project_dir}",
+        f"Endpoint: {session.base_url}",
     ]
     if session.max_cost:
         ok, budget_msg = session.check_budget()
@@ -200,6 +212,7 @@ def _cmd_config(app, args: str) -> None:
 
     lines = [
         f"api_key = {masked}",
+        f"base_url = {session.base_url}",
         f"model = {session.base_model}",
         f"pro_model = {session.pro_model}",
         f"thinking = {session.thinking}",

@@ -42,6 +42,7 @@ class CostTracker:
     input_cached: int = 0
     output_tokens: int = 0
     accrued_cost: float = 0.0
+    unpriced_tokens: int = 0  # tokens from models with no known rate card
 
     def record(
         self,
@@ -55,7 +56,14 @@ class CostTracker:
         self.input_cached += cached_tokens
         self.output_tokens += output_tokens
 
-        p_miss, p_cached, p_out = price_for(model)
+        rates = price_for(model)
+        if rates is None:
+            # Pointed at an endpoint we have no rates for. Count the tokens, but
+            # do not invent a dollar figure — a wrong number is worse than none.
+            self.unpriced_tokens += input_tokens + output_tokens
+            return
+
+        p_miss, p_cached, p_out = rates
         self.accrued_cost += (
             miss / 1_000_000 * p_miss + cached_tokens / 1_000_000 * p_cached + output_tokens / 1_000_000 * p_out
         )
@@ -63,18 +71,29 @@ class CostTracker:
     def session_cost(self) -> float:
         return self.accrued_cost
 
+    @property
+    def fully_priced(self) -> bool:
+        return self.unpriced_tokens == 0
+
     def summary(self) -> str:
         total_in = self.input_tokens + self.input_cached
         cached = self.input_cached
         out = self.output_tokens
-        cost = self.session_cost()
 
         cached_note = f"  {cached / 1000:.1f}k cached" if cached else ""
-        return f"in {total_in / 1000:.1f}k{cached_note} · out {out / 1000:.1f}k · ${cost:.4f}"
+        counts = f"in {total_in / 1000:.1f}k{cached_note} · out {out / 1000:.1f}k"
+
+        if self.fully_priced:
+            return f"{counts} · ${self.session_cost():.4f}"
+        if self.accrued_cost:
+            # Some turns were priced and some weren't, so the total is a floor.
+            return f"{counts} · ${self.session_cost():.4f}+ (some models unpriced)"
+        return f"{counts} · cost unknown (no rate card for this model)"
 
     def reset(self) -> None:
         self.input_tokens = self.input_cached = self.output_tokens = 0
         self.accrued_cost = 0.0
+        self.unpriced_tokens = 0
 
 
 @dataclass
@@ -117,6 +136,9 @@ class Session:
     shell_timeout: int = 15
     claude_timeout: int = 1800
     truncation_limit: int = 16000
+
+    # Provider endpoint, kept for display only — the client is already built.
+    base_url: str = "https://api.deepseek.com"
 
     # Tracking
     start_time: float = field(default_factory=time.time)

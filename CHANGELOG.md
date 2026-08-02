@@ -2,9 +2,13 @@
 
 ## 1.3.0 (2026-08-02)
 
-Safety rails, and the test suite that should have been there already.
+Safety rails, any OpenAI-compatible provider, and the test suite that should have been there already.
 
 ### Added
+
+* **`base_url` is configurable.** supervis has always spoken plain OpenAI chat-completions to DeepSeek; the endpoint was just hardcoded. Point it at OpenRouter, Moonshot, Zhipu, Together, a local vLLM or Ollama server. New key `base_url`, new env var `SUPERVIS_BASE_URL`, and `SUPERVIS_API_KEY` as a provider-neutral alias for `DEEPSEEK_API_KEY` (which still works).
+* **`[pricing]` config section.** supervis only ships DeepSeek's rate card, so a model it has never heard of is now counted but not priced — the status bar says `cost unknown` instead of quoting DeepSeek's numbers for somebody else's model. Declare `input`, `output`, and optionally `cached` per 1M tokens to get real figures back.
+* Leaving DeepSeek changes two more things, both handled: naming a `model` without a `pro_model` collapses tiering onto that one model rather than escalating to a DeepSeek id the endpoint has never heard of, and the DeepSeek-only `thinking` extension is no longer sent to providers that would reject it. `/model <id>` takes an arbitrary model id verbatim when you are off DeepSeek, while still catching typos on DeepSeek itself.
 
 * **`max_turns` (default 50).** The agent loop's only natural exit was the model deciding to stop calling tools, so a model that kept re-dispatching the same step ran until the budget or the user stopped it. One user message now gets a bounded number of tool-calling turns. Set it to `0` to disable.
 * **The stuck cap now stops.** After five attempts that fail the same way, supervis used to print "looks stuck" and keep grinding. It stops, hands control back, and queues the next turn on pro — so whatever hint you come back with is answered by the stronger model.
