@@ -55,17 +55,18 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
     # Strip reasoning_content from older turns before sending
     session.strip_old_reasoning()
 
-    # Thinking mode: both V4 models toggle it the same way via extra_body.
-    # On pro turns we also raise the reasoning effort, since pro is only used
-    # for the hard moments where the extra deliberation is worth paying for.
+    # Thinking mode: both V4 models toggle it the same way via extra_body. On pro
+    # turns we also raise the reasoning effort, since pro is only used for the hard
+    # moments where the extra deliberation is worth paying for.
+    #
+    # Only DeepSeek gets this. `thinking` is a DeepSeek extension, and sending it
+    # to another OpenAI-compatible endpoint is a 400 waiting to happen — those
+    # providers expose their own reasoning controls under different names.
     extra_body: dict | None = None
     if session.model.startswith("deepseek-v4"):
         extra_body = {"thinking": {"type": "enabled" if session.thinking else "disabled"}}
         if session.model == session.pro_model and session.thinking:
             extra_body["reasoning_effort"] = session.reasoning_effort
-    elif session.thinking:
-        # Fallback for any non-V4 id (the legacy chat/reasoner ids were retired 2026-07-24)
-        extra_body = {"thinking": {"type": "enabled"}}
 
     response = await session.client.chat.completions.create(  # type: ignore[call-overload]
         model=session.model,

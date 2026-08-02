@@ -6,6 +6,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .pricing import register_pricing
+
 logger = logging.getLogger(__name__)
 
 if sys.version_info >= (3, 11):
@@ -20,15 +22,20 @@ _GLOBAL_CONFIG_DIR = Path.home() / ".config" / "supervis"
 _GLOBAL_CONFIG_FILE = _GLOBAL_CONFIG_DIR / "config.toml"
 _OLD_CONFIG_FILE = _GLOBAL_CONFIG_DIR / "config"
 
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_PRO_MODEL = "deepseek-v4-pro"
+
 
 @dataclass
 class Config:
     """All supervis settings. Resolved once at startup."""
 
-    # Provider
+    # Provider. Any OpenAI-compatible endpoint works; DeepSeek is just the default.
     api_key: str = ""
-    model: str = "deepseek-v4-flash"  # base/driver tier
-    pro_model: str = "deepseek-v4-pro"  # escalation tier
+    base_url: str = DEFAULT_BASE_URL
+    model: str = DEFAULT_MODEL  # base/driver tier
+    pro_model: str = DEFAULT_PRO_MODEL  # escalation tier
     thinking: bool = True
     auto_escalate: bool = True
 
@@ -79,6 +86,8 @@ def _apply_toml(config: Config, data: dict) -> None:
     """Apply TOML dict to config, handling flat and [behavior] keys."""
     if "api_key" in data:
         config.api_key = str(data["api_key"]).strip()
+    if "base_url" in data:
+        config.base_url = str(data["base_url"]).strip().rstrip("/")
     if "model" in data:
         config.model = str(data["model"]).strip()
     if "pro_model" in data:
@@ -100,6 +109,8 @@ def _apply_toml(config: Config, data: dict) -> None:
     if "truncation_limit" in behavior:
         config.truncation_limit = int(behavior["truncation_limit"])
 
+    _apply_pricing(data)
+
     # Also accept flat keys for convenience (no [behavior] section needed)
     for key in ("max_cost", "max_turns", "shell_timeout", "claude_timeout", "truncation_limit"):
         if key in data and key not in behavior:
@@ -112,9 +123,15 @@ def _apply_toml(config: Config, data: dict) -> None:
 
 def _apply_env(config: Config) -> None:
     """Environment variables override everything."""
-    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    # SUPERVIS_API_KEY is the provider-neutral name; DEEPSEEK_API_KEY still works
+    # because that is what every existing install has set.
+    key = os.environ.get("SUPERVIS_API_KEY", "").strip() or os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if key:
         config.api_key = key
+
+    base_url = os.environ.get("SUPERVIS_BASE_URL", "").strip()
+    if base_url:
+        config.base_url = base_url.rstrip("/")
 
     model = os.environ.get("SUPERVIS_MODEL", "").strip()
     if model:
@@ -175,8 +192,52 @@ def load_config(project_dir: str | None = None) -> Config:
 
     # Legacy model ids were retired 2026-07-24. Remap so old configs keep working.
     _migrate_legacy_model(config)
+    _resolve_pro_model(config)
 
     return config
+
+
+def _apply_pricing(data: dict) -> None:
+    """Register user-declared rates from a [pricing] section.
+
+    Needed because supervis can point at any OpenAI-compatible endpoint, and we
+    only ship DeepSeek's rate card:
+
+        [pricing."moonshotai/kimi-k2"]
+        input = 0.60
+        cached = 0.15
+        output = 2.50
+    """
+    section = data.get("pricing")
+    if not isinstance(section, dict):
+        return
+
+    for model, rates in section.items():
+        if not isinstance(rates, dict) or "input" not in rates or "output" not in rates:
+            _warn(f"ignoring [pricing.{model}]: needs at least 'input' and 'output'")
+            continue
+        try:
+            register_pricing(
+                model,
+                input_miss=float(rates["input"]),
+                output=float(rates["output"]),
+                cached=float(rates["cached"]) if "cached" in rates else None,
+            )
+        except (TypeError, ValueError):
+            _warn(f"ignoring [pricing.{model}]: rates must be numbers")
+
+
+def _resolve_pro_model(config: Config) -> None:
+    """Point the escalation tier somewhere sane for a non-default provider.
+
+    Escalating to `deepseek-v4-pro` makes no sense once someone has repointed
+    base_url at another provider and named their own model. If they changed the
+    model and left pro_model alone, tiering collapses to a single model rather
+    than dispatching to an id their endpoint has never heard of. Naming
+    pro_model explicitly always wins.
+    """
+    if config.model != DEFAULT_MODEL and config.pro_model == DEFAULT_PRO_MODEL:
+        config.pro_model = config.model
 
 
 _LEGACY_MODELS = {

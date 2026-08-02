@@ -133,10 +133,13 @@ class TestCostTrackerModels:
         # token counters aggregate regardless of tier
         assert ct.input_tokens == 2_000_000
 
-    def test_unknown_model_falls_back_to_flash(self):
+    def test_unknown_model_is_counted_but_not_priced(self):
+        """Rates for one provider must never be applied to another's model."""
         ct = CostTracker()
         ct.record(1_000_000, 0, model="some-future-model")
-        assert abs(ct.session_cost() - 0.14) < 0.001
+        assert ct.session_cost() == 0.0
+        assert ct.input_tokens == 1_000_000
+        assert not ct.fully_priced
 
     def test_cached_tokens_priced_lower(self):
         ct = CostTracker()

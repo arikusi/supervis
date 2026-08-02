@@ -8,7 +8,7 @@ from textual.widgets import Footer, Header, Input
 from .claude import get_proc, reset_session
 from .commands import dispatch, get_help
 from .config import Config
-from .deepseek import DEEPSEEK_BASE_URL, REQUEST_TIMEOUT
+from .deepseek import REQUEST_TIMEOUT
 from .events import Event, EventType, emit, subscribe, unsubscribe
 from .queue import MessageQueue
 from .session import Session
@@ -58,7 +58,7 @@ class SupervisApp(App):
             config = Config()
         client = AsyncOpenAI(
             api_key=config.api_key,
-            base_url=DEEPSEEK_BASE_URL,
+            base_url=config.base_url,
             timeout=REQUEST_TIMEOUT,
             max_retries=0,  # stream_turn does its own retry with backoff
         )
@@ -75,6 +75,7 @@ class SupervisApp(App):
             shell_timeout=config.shell_timeout,
             claude_timeout=config.claude_timeout,
             truncation_limit=config.truncation_limit,
+            base_url=config.base_url,
         )
 
     def compose(self) -> ComposeResult:
