@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "supervis"
-version = "1.2.2"
+dynamic = ["version"]  # single source: supervisor/__init__.py
 description = "DeepSeek supervisor for Claude Code"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,8 +25,8 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-asyncio>=0.21"]
-dev = ["ruff>=0.4.0", "mypy>=1.0"]
+test = ["pytest>=7.0", "pytest-asyncio>=0.21", "pytest-cov>=4.0"]
+dev = ["ruff>=0.4.0", "mypy>=1.0", "pre-commit>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/arikusi/supervis"
@@ -35,9 +35,15 @@ Issues = "https://github.com/arikusi/supervis/issues"
 [project.scripts]
 supervis = "supervisor.main:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "supervisor.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["supervisor*"]
+
+[tool.setuptools.package-data]
+supervisor = ["py.typed"]
 
 [tool.ruff]
 target-version = "py310"
@@ -59,3 +65,19 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+
+[tool.coverage.run]
+source = ["supervisor"]
+branch = true
+
+[tool.coverage.report]
+# The floor is a ratchet, not a target. Raise it when coverage climbs; never
+# lower it to make a red build go green.
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    'if __name__ == "__main__":',
+]

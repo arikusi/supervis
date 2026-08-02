@@ -75,7 +75,7 @@ async def test_short_output_not_truncated():
     mock_proc = _make_mock_proc([_make_stream_line(short_text)])
 
     with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
-        result = await run_claude("test prompt", continue_session=False)
+        result = await run_claude("test prompt", continue_session=False, session=_fake_session())
 
     assert result == short_text
     assert "truncated" not in result
@@ -87,7 +87,7 @@ async def test_long_output_truncated():
     mock_proc = _make_mock_proc([_make_stream_line(long_text)])
 
     with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
-        result = await run_claude("test prompt", continue_session=False)
+        result = await run_claude("test prompt", continue_session=False, session=_fake_session())
 
     assert len(result) < 20000
     # The forwarded head is bounded, but the note must tell the supervisor the
@@ -159,7 +159,7 @@ async def test_over_long_line_is_skipped():
     mock_proc = _make_mock_proc([_make_stream_line("after the big line")], raise_once=True)
 
     with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
-        result = await run_claude("test prompt", continue_session=False)
+        result = await run_claude("test prompt", continue_session=False, session=_fake_session())
 
     assert result == "after the big line"
 
@@ -170,7 +170,7 @@ async def test_failure_surfaces_stderr():
     mock_proc = _make_mock_proc([], returncode=1, stderr_lines=[b"boom: something broke\n"])
 
     with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
-        result = await run_claude("test prompt", continue_session=False)
+        result = await run_claude("test prompt", continue_session=False, session=_fake_session())
 
     assert "exited with code 1" in result
     assert "boom: something broke" in result

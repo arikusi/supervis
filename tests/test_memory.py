@@ -43,7 +43,8 @@ class TestCleanForSummarize:
 
 class TestSafeTailStart:
     def test_avoids_orphan_tool_message(self):
-        # tail boundary would land on a tool result; must walk back to the user
+        # tail boundary would land on a tool result, which the API rejects when
+        # the assistant that called it has been summarized away
         msgs = [
             {"role": "system"},
             {"role": "user"},
@@ -51,8 +52,21 @@ class TestSafeTailStart:
             {"role": "tool"},
             {"role": "tool"},
         ]
-        # keep=2 → raw start is index 3 (a tool message) → walk back to user at 1
-        assert _safe_tail_start(msgs, keep=2) == 1
+        # keep=2 → raw start is index 3 (a tool message) → walk back to the
+        # assistant at 2, which carries its own tool results forward
+        assert _safe_tail_start(msgs, keep=2) == 2
+
+    def test_walks_past_a_run_of_tool_results(self):
+        msgs = [
+            {"role": "system"},
+            {"role": "user"},
+            {"role": "assistant", "tool_calls": [{}]},
+            {"role": "tool"},
+            {"role": "tool"},
+            {"role": "tool"},
+        ]
+        # every candidate from 4 down is a tool message until the assistant at 2
+        assert _safe_tail_start(msgs, keep=2) == 2
 
     def test_lands_on_user_when_safe(self):
         msgs = [{"role": "system"}] + [

@@ -55,23 +55,35 @@ supervis
 
 You will need the Claude Code CLI on your PATH and a DeepSeek API key. supervis checks for both at startup.
 
-## Linting and type checking
+## Checks
 
-ruff for linting and formatting, mypy for types. CI runs all three on every push, and the format check is not advisory — a PR that is not formatted will fail.
+`make check` runs exactly what CI runs, in the same order. Individually:
 
 ```bash
-ruff check supervisor/ tests/
-ruff format --check supervisor/ tests/
-mypy supervisor/ --ignore-missing-imports
+make lint       # ruff check + ruff format --check
+make typecheck  # mypy
+make cov        # pytest with coverage and the floor enforced
+```
+
+The format check is not advisory — a PR that is not formatted will fail. `make format` fixes it.
+
+There is a pre-commit config if you would rather catch it before the commit lands:
+
+```bash
+pre-commit install
 ```
 
 ## Running tests
 
 ```bash
-pytest
+make test
 ```
 
-Tests are offline by design: no test makes a real API call or spawns a real Claude Code process. Anything that would talk to the network is mocked. Keep it that way.
+Two rules for the suite:
+
+Tests are offline by design. No test makes a real API call or spawns a real Claude Code process. Anything that would touch the network is mocked. Keep it that way.
+
+Coverage has a floor, set in `pyproject.toml` under `[tool.coverage.report]`. It is a ratchet: raise it when coverage climbs, never lower it to turn a red build green. Widget behavior is tested through Textual's `run_test()` harness rather than by poking at internals — see `tests/test_app.py` for the pattern.
 
 CI runs the suite on Python 3.10 through 3.14.
 

@@ -113,6 +113,7 @@ class Session:
 
     # Limits
     max_cost: float | None = None
+    max_turns: int = 50  # tool-calling turns per user message; 0 disables the cap
     shell_timeout: int = 15
     claude_timeout: int = 1800
     truncation_limit: int = 16000
@@ -232,8 +233,19 @@ class Session:
         return nudge
 
     def consume_stuck_alert(self) -> bool:
-        """Return True once when the session has crossed the stuck cap."""
+        """Return True once when the session has crossed the stuck cap.
+
+        Surfacing the alert ends the current run, so the counters start over —
+        otherwise the very next failure would trip the cap again immediately.
+        The next turn is queued on pro: whatever the user comes back with is
+        answering a problem that already beat the cheap model five times.
+        """
         alert, self._stuck_alert = self._stuck_alert, False
+        if alert:
+            self._failures = 0
+            self._recent_prompts = []
+            if self.auto_escalate and not self.pinned:
+                self._escalate_next = True
         return alert
 
     def strip_old_reasoning(self) -> None:

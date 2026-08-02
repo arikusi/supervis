@@ -7,6 +7,14 @@ build/
 .venv/
 *.egg
 
+# Test and coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # Backup
 *.bak
 

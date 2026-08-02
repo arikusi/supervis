@@ -1,0 +1,44 @@
+name: Bug report
+description: Something behaves differently than it should
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: >
+        The tail of `~/.local/share/supervis/supervis.log` usually explains it.
+        Running `supervis --debug` mirrors the same log to your terminal.
+        Check it for anything you would rather not share before pasting.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: supervis version
+      placeholder: "output of: supervis --version"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python version
+      placeholder: "Arch Linux, Python 3.13"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: Output of `/config` in the TUI, which masks your API key.
+      render: toml

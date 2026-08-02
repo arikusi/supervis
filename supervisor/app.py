@@ -47,7 +47,11 @@ class SupervisApp(App):
         self._system_prompt = system_prompt
         self._user_queue = MessageQueue()
         self._agent_running = False
-        self._ctrl_c_count = 0
+
+        # Streaming buffers. They belong here rather than in a widget: both
+        # OutputLog and StreamDisplay render from them, and only the App sees both.
+        self._ds_buffer = ""
+        self._reasoning_buffer = ""
 
         # Create session from config
         if config is None:
@@ -67,6 +71,7 @@ class SupervisApp(App):
             pro_model=config.pro_model,
             auto_escalate=config.auto_escalate,
             max_cost=config.max_cost,
+            max_turns=config.max_turns,
             shell_timeout=config.shell_timeout,
             claude_timeout=config.claude_timeout,
             truncation_limit=config.truncation_limit,
@@ -108,20 +113,23 @@ class SupervisApp(App):
 
         match event.type:
             case EventType.DEEPSEEK_START:
-                log.write_deepseek_start()
+                self._ds_buffer = ""
+                self._reasoning_buffer = ""
                 status.thinking = True
             case EventType.DEEPSEEK_THINKING:
                 status.thinking = True
             case EventType.DEEPSEEK_TOKEN:
-                log.write_deepseek_token(d.get("text", ""))
-                stream.show_streaming("DeepSeek", log._ds_buffer, "cyan")
+                self._ds_buffer += d.get("text", "")
+                stream.show_streaming("DeepSeek", self._ds_buffer, "cyan")
             case EventType.DEEPSEEK_REASONING:
-                log.write_deepseek_reasoning(d.get("text", ""))
-                stream.show_streaming("thinking", log._reasoning_buffer, "#5f87af")
+                self._reasoning_buffer += d.get("text", "")
+                stream.show_streaming("thinking", self._reasoning_buffer, "#5f87af")
             case EventType.DEEPSEEK_DONE:
                 stream.clear_streaming()
                 summary = d.get("cost", "")
-                log.write_deepseek_done(summary)
+                log.write_deepseek_done(self._ds_buffer, summary)
+                self._ds_buffer = ""
+                self._reasoning_buffer = ""
                 status.thinking = False
                 status.cost_text = summary
             case EventType.DEEPSEEK_ERROR:
@@ -184,7 +192,6 @@ class SupervisApp(App):
             return
 
         self._user_queue.put_nowait(text)
-        self._ctrl_c_count = 0
 
         if self._agent_running:
             count = self._user_queue.qsize

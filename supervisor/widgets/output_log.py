@@ -1,13 +1,16 @@
-"""Scrollable output area for all agent output."""
+"""Scrollable output area for all agent output.
+
+Pure rendering: every method takes what it should print. Streaming state is
+coordinated by the App, which is the only place that sees both this widget and
+StreamDisplay.
+"""
 
 from rich.text import Text
 from textual.widgets import RichLog
 
 
 class OutputLog(RichLog):
-    """Main output area. Buffers DeepSeek tokens, writes final on DONE.
-    Live streaming preview is handled by StreamDisplay (separate widget).
-    """
+    """Main output area. Final, settled lines land here."""
 
     DEFAULT_CSS = """
     OutputLog {
@@ -19,33 +22,19 @@ class OutputLog(RichLog):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(highlight=True, markup=True, wrap=True, **kwargs)
-        self._ds_buffer = ""
-        self._reasoning_buffer = ""
 
     # ─── DeepSeek ────────────────────────────────────────────────────
 
-    def write_deepseek_start(self) -> None:
-        self._ds_buffer = ""
-        self._reasoning_buffer = ""
-
-    def write_deepseek_token(self, token: str) -> None:
-        self._ds_buffer += token
-
-    def write_deepseek_reasoning(self, token: str) -> None:
-        self._reasoning_buffer += token
-
-    def write_deepseek_done(self, cost_summary: str) -> None:
+    def write_deepseek_done(self, content: str, cost_summary: str = "") -> None:
         text = Text()
         text.append("DeepSeek: ", style="bold cyan")
-        if self._ds_buffer:
-            text.append(self._ds_buffer, style="cyan")
+        if content:
+            text.append(content, style="cyan")
         else:
             text.append("(tool calls only)", style="dim cyan")
         if cost_summary:
             text.append(f"  [{cost_summary}]", style="dim")
         self.write(text)
-        self._ds_buffer = ""
-        self._reasoning_buffer = ""
 
     def write_deepseek_error(self, error: str) -> None:
         self.write(Text(f"[DeepSeek error: {error}]", style="yellow"))
@@ -78,9 +67,6 @@ class OutputLog(RichLog):
 
     def write_user(self, text: str) -> None:
         self.write(Text(f"You: {text}", style="bold green"))
-
-    def write_queued(self, text: str) -> None:
-        self.write(Text(f"[Queued] {text}", style="yellow"))
 
     def write_tool_exec(self, label: str) -> None:
         self.write(Text(f"  [{label}]", style="dim"))

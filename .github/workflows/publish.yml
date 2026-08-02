@@ -6,23 +6,55 @@ on:
       - "v*"
 
 jobs:
+  # A tag push does not trigger CI (that runs on branches), so the checks are
+  # repeated here. Publishing is irreversible — PyPI will not accept the same
+  # version twice — so nothing gets uploaded until this job is green.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e ".[dev,test]"
+
+      - name: Tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(python -c 'import supervisor; print(supervisor.__version__)')"
+          echo "tag=$TAG package=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG does not match __version__ $PKG"
+            exit 1
+          fi
+
+      - run: ruff check supervisor/ tests/
+      - run: ruff format --check supervisor/ tests/
+      - run: mypy supervisor/ --ignore-missing-imports
+      - run: pytest tests/ -q --cov --cov-report=term-missing
+
   publish:
+    needs: verify
     runs-on: ubuntu-latest
     environment: release
     permissions:
       id-token: write  # trusted publishing
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Build
         run: |
-          pip install build
+          pip install build twine
           python -m build
+          twine check dist/*
 
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
