@@ -8,11 +8,9 @@ import os
 import shutil
 
 from .events import EventType, emit
+from .session import Session
 
 logger = logging.getLogger(__name__)
-
-# Module-level fallback for backward compat (used when no session passed)
-_claude_first = True
 
 # Grace period for the process to exit once stdout has closed. The worker is
 # done writing at that point, so this only guards against a child that refuses
@@ -25,36 +23,28 @@ def claude_available() -> bool:
     return shutil.which("claude") is not None
 
 
-def reset_session(session=None) -> None:
-    global _claude_first
-    if session:
-        session.claude_first = True
-    else:
-        _claude_first = True
+def reset_session(session: Session) -> None:
+    """Make the next run_claude start a fresh Claude Code session."""
+    session.claude_first = True
 
 
-def get_proc(session=None):  # type: ignore[no-untyped-def]
+def get_proc(session: Session) -> asyncio.subprocess.Process | None:
     """Return the running Claude subprocess, if any."""
-    if session:
-        return session.claude_proc
-    return None
+    return session.claude_proc
 
 
-async def _reap(proc, timeout: int = 5) -> None:
+async def _reap(proc: asyncio.subprocess.Process, timeout: int = 5) -> None:
     """Best-effort wait for a killed/terminated child so it isn't left a zombie."""
     with contextlib.suppress(Exception):
         await asyncio.wait_for(proc.wait(), timeout=timeout)
 
 
-async def run_claude(prompt: str, continue_session: bool = True, session=None) -> str:
-    global _claude_first
-
+async def run_claude(prompt: str, continue_session: bool = True, *, session: Session) -> str:
     emit(EventType.CLAUDE_START, prompt=prompt)
 
-    # Determine first-call state
-    is_first = session.claude_first if session else _claude_first
-    idle_timeout = session.claude_timeout if session else 1800
-    truncation = session.truncation_limit if session else 16000
+    is_first = session.claude_first
+    idle_timeout = session.claude_timeout
+    truncation = session.truncation_limit
 
     cmd = [
         "claude",
@@ -69,11 +59,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
     if continue_session and not is_first:
         cmd.append("--continue")
 
-    # Mark first call as done
-    if session:
-        session.claude_first = False
-    else:
-        _claude_first = False
+    session.claude_first = False
 
     logger.debug("Claude subprocess start: %s", " ".join(cmd[:4]))
     proc = await asyncio.create_subprocess_exec(
@@ -83,8 +69,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
         cwd=os.getcwd(),
         limit=1024 * 1024 * 10,
     )
-    if session:
-        session.claude_proc = proc
+    session.claude_proc = proc
 
     # Drain stderr concurrently. If we only read stdout and leave stderr=PIPE
     # unread, a chatty subprocess can fill the ~64KB pipe buffer and block,
@@ -181,8 +166,7 @@ async def run_claude(prompt: str, continue_session: bool = True, session=None) -
         await _reap(proc)
         raise
     finally:
-        if session:
-            session.claude_proc = None
+        session.claude_proc = None
 
     if stalled:
         proc.kill()

@@ -1,9 +1,12 @@
 """Configuration: TOML-based, layered (global + per-project + env vars)."""
 
+import logging
 import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -31,17 +34,44 @@ class Config:
 
     # Behavior
     max_cost: float | None = None
+    max_turns: int = 50  # tool-calling turns per user message; 0 disables the cap
     shell_timeout: int = 15
     claude_timeout: int = 1800  # idle, not total: seconds of silence before the worker is killed
     truncation_limit: int = 16000
 
 
+def _warn(message: str) -> None:
+    """Surface a config problem. Startup happens before the TUI, so stderr works."""
+    logger.warning(message)
+    print(f"supervis: {message}", file=sys.stderr)
+
+
+def _write_secret(path: Path, content: str) -> None:
+    """Write a file containing a credential, 0600 from the moment it exists.
+
+    write_text() then chmod() leaves the key readable at the umask default for
+    however long the two calls take.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    # O_CREAT's mode is ignored when the file already existed, so fix that case too.
+    path.chmod(0o600)
+
+
 def _read_toml(path: Path) -> dict:  # type: ignore[type-arg]
-    """Read a TOML file, return empty dict if missing or broken."""
+    """Read a TOML file. Missing is normal; broken is worth saying out loud."""
     try:
         result: dict = tomllib.loads(path.read_text(encoding="utf-8"))  # type: ignore[type-arg]
         return result
-    except (FileNotFoundError, PermissionError, tomllib.TOMLDecodeError):
+    except FileNotFoundError:
+        return {}
+    except tomllib.TOMLDecodeError as e:
+        _warn(f"ignoring {path}: invalid TOML ({e}). Running with defaults for those settings.")
+        return {}
+    except OSError as e:
+        _warn(f"ignoring {path}: {e}")
         return {}
 
 
@@ -61,6 +91,8 @@ def _apply_toml(config: Config, data: dict) -> None:
     behavior = data.get("behavior", {})
     if "max_cost" in behavior:
         config.max_cost = float(behavior["max_cost"])
+    if "max_turns" in behavior:
+        config.max_turns = int(behavior["max_turns"])
     if "shell_timeout" in behavior:
         config.shell_timeout = int(behavior["shell_timeout"])
     if "claude_timeout" in behavior:
@@ -69,7 +101,7 @@ def _apply_toml(config: Config, data: dict) -> None:
         config.truncation_limit = int(behavior["truncation_limit"])
 
     # Also accept flat keys for convenience (no [behavior] section needed)
-    for key in ("max_cost", "shell_timeout", "claude_timeout", "truncation_limit"):
+    for key in ("max_cost", "max_turns", "shell_timeout", "claude_timeout", "truncation_limit"):
         if key in data and key not in behavior:
             val = data[key]
             if key == "max_cost":
@@ -118,9 +150,7 @@ def _migrate_old_config() -> None:
                 break
 
         if api_key:
-            _GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            _GLOBAL_CONFIG_FILE.write_text(f'api_key = "{api_key}"\n')
-            _GLOBAL_CONFIG_FILE.chmod(0o600)
+            _write_secret(_GLOBAL_CONFIG_FILE, f'api_key = "{api_key}"\n')
             print(f"Migrated config to {_GLOBAL_CONFIG_FILE}")
     except Exception:
         pass
@@ -181,9 +211,7 @@ def prompt_api_key() -> str:
         print("No key entered. Exiting.")
         raise SystemExit(1)
 
-    _GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    _GLOBAL_CONFIG_FILE.write_text(f'api_key = "{key}"\n')
-    _GLOBAL_CONFIG_FILE.chmod(0o600)
+    _write_secret(_GLOBAL_CONFIG_FILE, f'api_key = "{key}"\n')
     print(f"Saved to {_GLOBAL_CONFIG_FILE}\n")
     return key
 

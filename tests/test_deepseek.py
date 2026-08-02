@@ -1,13 +1,16 @@
 """Tests for supervisor.deepseek module — retry logic and agent loop."""
 
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError
 
-from supervisor.deepseek import _retry_plan, run_agent_loop, stream_turn
-from supervisor.session import Session
+from supervisor.deepseek import _api_call, _retry_plan, run_agent_loop, stream_turn
+from supervisor.events import Event, EventType, subscribe, unsubscribe
+from supervisor.session import STUCK_CAP, Session
 
 
 class FakeAPIError(Exception):
@@ -148,6 +151,101 @@ class TestRetryPlan:
         assert waits == [2, 4, 8]
 
 
+class FakeDelta:
+    def __init__(self, content=None, reasoning=None, tool_calls=None):
+        self.content = content
+        self.reasoning_content = reasoning
+        self.tool_calls = tool_calls
+
+
+class FakeChunk:
+    def __init__(self, content=None, reasoning=None, tool_calls=None, usage=None):
+        self.usage = usage
+        self.choices = [SimpleNamespace(delta=FakeDelta(content, reasoning, tool_calls))]
+
+
+class FakeStream:
+    """Stands in for the openai AsyncStream.
+
+    Records whether it was closed, and counts how many chunks were actually
+    pulled — an interrupt that works stops pulling.
+    """
+
+    def __init__(self, chunks, before_chunk=None):
+        self._chunks = list(chunks)
+        self.closed = False
+        self.yielded = 0
+        self._before_chunk = before_chunk
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for i, chunk in enumerate(self._chunks):
+            if self._before_chunk:
+                self._before_chunk(i)
+            self.yielded += 1
+            yield chunk
+
+    async def close(self):
+        self.closed = True
+
+
+def _session_with_stream(stream) -> Session:
+    session = Session(client=MagicMock())
+    session.messages = [{"role": "system", "content": "sys"}]
+    session.client.chat.completions.create = AsyncMock(return_value=stream)
+    return session
+
+
+class TestStreamInterrupt:
+    @pytest.mark.asyncio
+    async def test_interrupt_stops_reading_and_closes_the_stream(self):
+        session = None
+
+        def interrupt_before_second(index: int) -> None:
+            if index == 1:
+                session.interrupt_event.set()
+
+        stream = FakeStream(
+            [FakeChunk(content="one"), FakeChunk(content="two"), FakeChunk(content="three")],
+            before_chunk=interrupt_before_second,
+        )
+        session = _session_with_stream(stream)
+
+        content, tool_calls, _ = await _api_call(session)
+
+        assert stream.closed, "an interrupted stream must be closed, not abandoned"
+        assert content == "one", "content after the interrupt should be dropped"
+        assert stream.yielded == 2, "reading must stop, not run the stream to completion"
+        assert tool_calls == []
+
+    @pytest.mark.asyncio
+    async def test_partial_tool_calls_are_dropped_on_interrupt(self):
+        """Half-streamed tool calls have truncated JSON and would break the next call."""
+        partial = [SimpleNamespace(index=0, id="tc1", function=SimpleNamespace(name="run_claude", arguments='{"pro'))]
+        stream = FakeStream([FakeChunk(tool_calls=partial), FakeChunk(tool_calls=partial)])
+        session = _session_with_stream(stream)
+        session.interrupt_event.set()
+
+        content, tool_calls, _ = await _api_call(session)
+
+        assert tool_calls == []
+        assert content == "(interrupted)", "the assistant turn still needs a body"
+
+    @pytest.mark.asyncio
+    async def test_uninterrupted_stream_keeps_its_tool_calls(self):
+        calls = [SimpleNamespace(index=0, id="tc1", function=SimpleNamespace(name="run_claude", arguments='{"a":1}'))]
+        stream = FakeStream([FakeChunk(tool_calls=calls)])
+        session = _session_with_stream(stream)
+
+        _, tool_calls, _ = await _api_call(session)
+
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["name"] == "run_claude"
+        assert not stream.closed
+
+
 class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_stops_when_no_tool_calls(self):
@@ -241,3 +339,102 @@ class TestAgentLoop:
         tool_msgs = [m for m in session.messages if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         assert "subprocess exploded" in tool_msgs[0]["content"]
+
+
+class TestLoopCaps:
+    @pytest.mark.asyncio
+    async def test_max_turns_stops_a_model_that_never_stops_calling_tools(self):
+        """The loop's only natural exit is the model choosing to stop. This is the backstop."""
+        calls = 0
+
+        async def always_calls_a_tool(session, quiet=False):
+            nonlocal calls
+            calls += 1
+            return "", [{"id": f"tc{calls}", "name": "get_git_status", "arguments": "{}"}], ""
+
+        session = _make_session([{"role": "system", "content": "sys"}])
+        session.max_turns = 4
+
+        received: list[Event] = []
+        subscribe(received.append)
+        try:
+            with patch("supervisor.deepseek.stream_turn", side_effect=always_calls_a_tool):
+                with patch("supervisor.deepseek.execute_tool", new_callable=AsyncMock, return_value="clean"):
+                    await asyncio.wait_for(run_agent_loop(session), timeout=5)
+        finally:
+            unsubscribe(received.append)
+
+        assert calls == 4, f"expected the cap to stop it at 4 turns, ran {calls}"
+        notes = [e.data.get("text", "") for e in received if e.type is EventType.STATUS]
+        assert any("max_turns" in n for n in notes), "the user has to be told why it stopped"
+
+    @pytest.mark.asyncio
+    async def test_max_turns_zero_disables_the_cap(self):
+        calls = 0
+
+        async def stops_on_its_own(session, quiet=False):
+            nonlocal calls
+            calls += 1
+            if calls >= 3:
+                return "done", [], ""
+            return "", [{"id": f"tc{calls}", "name": "get_git_status", "arguments": "{}"}], ""
+
+        session = _make_session([{"role": "system", "content": "sys"}])
+        session.max_turns = 0
+
+        with patch("supervisor.deepseek.stream_turn", side_effect=stops_on_its_own):
+            with patch("supervisor.deepseek.execute_tool", new_callable=AsyncMock, return_value="clean"):
+                await asyncio.wait_for(run_agent_loop(session), timeout=5)
+
+        assert calls == 3
+
+    @pytest.mark.asyncio
+    async def test_repeated_failures_stop_the_loop_and_hand_back(self):
+        """Past the stuck cap, grinding costs money and gets nowhere."""
+        calls = 0
+
+        async def always_dispatches_claude(session, quiet=False):
+            nonlocal calls
+            calls += 1
+            return "", [{"id": f"tc{calls}", "name": "run_claude", "arguments": '{"prompt": "fix it"}'}], ""
+
+        session = _make_session([{"role": "system", "content": "sys"}])
+
+        received: list[Event] = []
+        subscribe(received.append)
+        try:
+            with patch("supervisor.deepseek.stream_turn", side_effect=always_dispatches_claude):
+                with patch(
+                    "supervisor.deepseek.execute_tool",
+                    new_callable=AsyncMock,
+                    return_value="Traceback (most recent call last): boom",
+                ):
+                    await asyncio.wait_for(run_agent_loop(session), timeout=5)
+        finally:
+            unsubscribe(received.append)
+
+        assert calls == STUCK_CAP, f"should stop at the stuck cap, ran {calls} turns"
+        notes = [e.data.get("text", "") for e in received if e.type is EventType.STATUS]
+        assert any("stuck" in n.lower() for n in notes)
+
+    @pytest.mark.asyncio
+    async def test_history_is_compacted_inside_a_long_run(self):
+        """A single request can run dozens of turns without returning to the user."""
+        calls = 0
+
+        async def keeps_going(session, quiet=False):
+            nonlocal calls
+            calls += 1
+            if calls > 30:
+                return "done", [], ""
+            return "", [{"id": f"tc{calls}", "name": "get_git_status", "arguments": "{}"}], ""
+
+        session = _make_session([{"role": "system", "content": "sys"}])
+        session.max_turns = 0
+
+        with patch("supervisor.deepseek.stream_turn", side_effect=keeps_going):
+            with patch("supervisor.deepseek.execute_tool", new_callable=AsyncMock, return_value="clean"):
+                with patch("supervisor.deepseek.summarize_if_needed", new_callable=AsyncMock) as mock_sum:
+                    await asyncio.wait_for(run_agent_loop(session), timeout=5)
+
+        assert mock_sum.await_count > 0, "the loop must compact its own history, not only on new input"

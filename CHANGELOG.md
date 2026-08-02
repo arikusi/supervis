@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.3.0 (2026-08-02)
+
+Safety rails, and the test suite that should have been there already.
+
+### Added
+
+* **`max_turns` (default 50).** The agent loop's only natural exit was the model deciding to stop calling tools, so a model that kept re-dispatching the same step ran until the budget or the user stopped it. One user message now gets a bounded number of tool-calling turns. Set it to `0` to disable.
+* **The stuck cap now stops.** After five attempts that fail the same way, supervis used to print "looks stuck" and keep grinding. It stops, hands control back, and queues the next turn on pro — so whatever hint you come back with is answered by the stronger model.
+* **`py.typed`.** The package was annotated but unmarked, so every downstream type checker ignored it.
+* **Repo plumbing:** dependabot, issue and PR templates, a pre-commit config, and a `Makefile` covering the same checks CI runs.
+
+### Fixed
+
+* **Ctrl+Z during a long reasoning turn did nothing visible.** The interrupt flag was set but nothing read it until the stream had finished on its own. The stream is now closed on interrupt, and half-streamed tool calls are dropped rather than sent back with truncated JSON arguments.
+* **A single long request never compacted its history.** Summarization only ran when a new user message arrived, so one request that ran eighty turns grew unbounded. It now runs inside the agent loop too. The tail boundary may also land on an assistant message, not only a user one, which is what makes mid-loop compaction possible at all.
+* **Summarization failures vanished silently.** A bare `except: pass` meant a failing summarizer looked identical to a working one, and the resulting context bloat was unexplainable. Failures are logged.
+* **A broken config file was ignored without a word.** A typo in TOML fell back to defaults silently; supervis now says which file failed and why.
+* **The API key file was written before being locked down.** `write_text()` then `chmod()` leaves the credential readable at the umask default in between. It is created 0600 now.
+
+### Changed
+
+* Version lives in one place. `pyproject.toml` reads it from `supervisor/__init__.py` instead of being kept in sync by hand.
+* CI gained a coverage floor (80%), `pip-audit`, and a build job that installs the wheel and runs it — packaging breakage now surfaces before a tag makes it permanent.
+* The release workflow verifies that the tag matches `__version__` and re-runs lint, types, and tests before uploading. A tag push does not trigger CI, so publishing used to depend on nobody having tagged a broken commit. Attestations are on.
+* Streaming buffers moved from `OutputLog` into the App. Two widgets render from them and only the App sees both; the old arrangement had the App reaching into another widget's private attributes.
+* `run_claude` and `execute_tool` now require a session instead of accepting `None`. The fallback path was unreachable and cost those modules their type hints.
+
+### Housekeeping
+
+Tests 140 to 265, coverage 49% to 86%. `orchestrator.py`, `commands.py`, `app.py`, `events.py`, and `pricing.py` had no tests at all before this release.
+
 ## 1.2.2 (2026-08-02)
 
 ### Fixed

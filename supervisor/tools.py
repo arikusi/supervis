@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .claude import run_claude
 from .events import EventType, emit
+from .session import Session
 
 logger = logging.getLogger(__name__)
 
@@ -226,15 +227,14 @@ _TOOL_LABELS = {
 }
 
 
-async def execute_tool(name: str, args: dict, session=None) -> str:
+async def execute_tool(name: str, args: dict, session: Session) -> str:
     logger.debug("execute_tool: %s", name)
     if name == "run_claude":
         return await run_claude(args["prompt"], args.get("continue_session", True), session=session)
 
     if name == "escalate":
         reason = args.get("reason", "")
-        if session:
-            session.request_escalation()
+        session.request_escalation()
         emit(EventType.STATUS, text=f"supervis flagged a hard decision: {reason}")
         return "Acknowledged. The next step will run on deepseek-v4-pro with full context."
 
@@ -252,7 +252,6 @@ async def execute_tool(name: str, args: dict, session=None) -> str:
         case "get_git_status":
             return _get_git_status()
         case "run_shell":
-            timeout = session.shell_timeout if session else 15
-            return _run_shell(args["command"], timeout=timeout)
+            return _run_shell(args["command"], timeout=session.shell_timeout)
         case _:
             return f"Unknown tool: {name}"

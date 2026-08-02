@@ -175,6 +175,8 @@ Routine "drive Claude Code" steps run on **deepseek-v4-flash** — fast and chea
 
 The status bar shows the active tier, with `↑` when escalated. You stay in control: `/model pro` pins a model, `/model auto` hands tiering back to supervis, and `/auto off` disables automatic escalation entirely.
 
+**It knows when to give up.** After five attempts that fail the same way, supervis stops instead of grinding, tells you it is stuck, and queues the next turn on pro — so whatever hint you come back with gets the stronger model. There is also a hard ceiling: `max_turns` (default 50) bounds how many tool-calling turns one message can trigger, so a model that keeps re-dispatching the same step can't run away with your budget. Set it to `0` if you want no cap.
+
 ## Configuration
 
 TOML config, layered: built-in defaults → `~/.config/supervis/config.toml` → `.supervis/config.toml` → environment variables.
@@ -191,6 +193,7 @@ auto_escalate = true
 
 [behavior]
 max_cost = 1.00
+max_turns = 50
 shell_timeout = 15
 claude_timeout = 1800
 truncation_limit = 16000
@@ -215,7 +218,9 @@ max_cost = 2.00
 
 The default is deliberately long (30 minutes). Claude Code emits a line per assistant turn and per tool result, so it stays silent for exactly as long as its current tool takes — a full test suite, a release build, or a container image is minutes of perfectly healthy silence. The timeout exists to catch a wedged process, not to bound your build. Lower it if you want faster detection and your tasks are short.
 
-**Cost budget:** Set `max_cost` to cap spending. supervis warns at 80% and stops at 100%.
+**Cost budget:** Set `max_cost` to cap spending. supervis warns at 80% and stops at 100%. There is no default limit; `max_turns` is the always-on runaway guard.
+
+If a config file has a syntax error, supervis says so on startup instead of silently falling back to defaults.
 
 > The legacy `deepseek-chat` / `deepseek-reasoner` ids were retired on 2026-07-24. If your config still names them, supervis transparently maps them to `deepseek-v4-flash` and prints a one-line notice.
 

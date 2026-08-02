@@ -257,3 +257,60 @@ class TestStripOldReasoning:
         session.messages = [{"role": "system", "content": "sys"}]
         session.strip_old_reasoning()  # should not crash
         assert len(session.messages) == 1
+
+
+class TestStuckCap:
+    def test_alert_fires_once_and_resets_the_counters(self):
+        session = Session(client=MagicMock())
+        for _ in range(STUCK_CAP):
+            session.note_claude_result("fix the build", "Traceback (most recent call last): boom")
+
+        assert session.consume_stuck_alert() is True
+        assert session.consume_stuck_alert() is False, "the alert must not repeat"
+        assert session._failures == 0, "counters restart so the next failure does not re-trip instantly"
+
+    def test_alert_queues_the_next_turn_on_pro(self):
+        """Whatever the user comes back with is answering a problem flash lost to."""
+        session = Session(client=MagicMock())
+        for _ in range(STUCK_CAP):
+            session.note_claude_result("fix the build", "tests failed")
+        session.consume_stuck_alert()
+
+        changed, _ = session.select_turn_model()
+        assert changed is True
+        assert session.model == session.pro_model
+
+    def test_a_pinned_model_is_not_overridden_by_the_alert(self):
+        session = Session(client=MagicMock())
+        session.pin_model("deepseek-v4-flash", thinking=False)
+        for _ in range(STUCK_CAP):
+            session.note_claude_result("fix the build", "tests failed")
+        session.consume_stuck_alert()
+
+        session.select_turn_model()
+        assert session.model == "deepseek-v4-flash", "a pin is the user's call and outranks escalation"
+
+    def test_a_success_clears_the_failure_streak(self):
+        session = Session(client=MagicMock())
+        for i in range(STUCK_CAP - 1):
+            session.note_claude_result(f"attempt {i}", "tests failed")
+        session.note_claude_result("different step", "All 40 tests pass. Build is clean.")
+
+        assert session._failures == 0
+        assert session.consume_stuck_alert() is False
+
+    def test_the_same_prompt_repeating_counts_as_stuck_even_when_it_reports_success(self):
+        """Re-dispatching an identical step is a loop, whatever the worker says."""
+        session = Session(client=MagicMock())
+        for _ in range(REPEAT_THRESHOLD):
+            session.note_claude_result("run the tests", "All tests pass.")
+
+        assert session._failures > 0
+
+    def test_varied_successful_prompts_never_look_stuck(self):
+        session = Session(client=MagicMock())
+        for i in range(10):
+            session.note_claude_result(f"step {i}", "Done, build is clean.")
+
+        assert session._failures == 0
+        assert session.consume_stuck_alert() is False

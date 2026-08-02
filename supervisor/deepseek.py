@@ -1,12 +1,14 @@
 """DeepSeek API client and streaming helper."""
 
 import asyncio
+import contextlib
 import json
 import logging
 
 from openai import APIConnectionError
 
 from .events import EventType, emit
+from .memory import summarize_if_needed
 from .session import Session
 from .tools import TOOLS, execute_tool
 
@@ -79,8 +81,19 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
     reasoning = ""
     tc_raw: dict[int, dict] = {}
     header_shown = not quiet
+    interrupted = False
 
     async for chunk in response:
+        # Ctrl+Z during a long reasoning turn used to do nothing visible: the
+        # event was set but nobody read it until the stream had finished on its
+        # own. Closing the response here is what makes the key feel connected.
+        if session.interrupt_event.is_set():
+            interrupted = True
+            logger.debug("stream interrupted by user after %d chars", len(content))
+            with contextlib.suppress(Exception):
+                await response.close()
+            break
+
         if chunk.usage:
             u = chunk.usage
             cached = getattr(u.prompt_tokens_details, "cached_tokens", 0) or 0
@@ -118,6 +131,12 @@ async def _api_call(session: Session, quiet: bool = False) -> tuple[str, list, s
                         tc_raw[i]["arguments"] += tc.function.arguments
 
     emit(EventType.DEEPSEEK_DONE, cost=session.cost.summary())
+
+    if interrupted:
+        # Half-streamed tool calls have truncated JSON arguments and possibly no
+        # id yet. Dropping them leaves a plain assistant message, which is a
+        # valid point to resume from; keeping them would poison the next request.
+        return content or "(interrupted)", [], reasoning
 
     tool_calls = list(tc_raw.values())
     return content, tool_calls, reasoning
@@ -165,6 +184,20 @@ async def run_agent_loop(session: Session) -> None:
     logger.debug("agent loop start")
     turn = 0
     while True:
+        # Hard stop. The loop's only natural exit is the model deciding to stop
+        # calling tools, so a model that keeps re-dispatching the same step would
+        # otherwise run until the budget or the user stopped it.
+        if session.max_turns and turn >= session.max_turns:
+            logger.warning("Agent loop hit max_turns=%d", session.max_turns)
+            emit(
+                EventType.STATUS,
+                text=(
+                    f"Stopped after {session.max_turns} turns (max_turns). "
+                    "Send a message to carry on, or raise max_turns in config."
+                ),
+            )
+            break
+
         # Pick flash vs pro for this turn (tiering / escalation) before calling out.
         changed, reason = session.select_turn_model()
         if changed:
@@ -253,8 +286,17 @@ async def run_agent_loop(session: Session) -> None:
         if nudge:
             session.messages.append({"role": "user", "content": nudge})
             emit(EventType.STATUS, text="supervis: stepping back to re-plan after repeated failures")
+        # Past the stuck cap, grinding on costs money and gets nowhere. Hand back.
         if session.consume_stuck_alert():
             emit(
                 EventType.STATUS,
-                text="supervis looks stuck. Send a hint, or /model pro to steer it yourself.",
+                text=(
+                    "supervis is stuck — several attempts in a row failed the same way, so it stopped. "
+                    "Send a hint about what to try instead, or /model pro to steer it yourself."
+                ),
             )
+            break
+
+        # A single request can run dozens of turns without returning to the user,
+        # so the history has to be compacted here too, not only on new input.
+        await summarize_if_needed(session)

@@ -1,6 +1,6 @@
 # supervis — full documentation
 
-DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Version 1.2.2.
+DeepSeek V4-powered supervisor that drives Claude Code autonomously through software projects. Version 1.3.0.
 
 ## What it is
 
@@ -58,6 +58,7 @@ auto_escalate = true
 
 [behavior]
 max_cost = 1.00
+max_turns = 50
 shell_timeout = 15
 claude_timeout = 1800
 truncation_limit = 16000
@@ -73,6 +74,7 @@ All settings can also be written as flat keys (without the `[behavior]` section)
 * `thinking` — enable thinking mode (true/false)
 * `auto_escalate` — let supervis escalate to pro automatically when stuck (default true)
 * `max_cost` — session cost limit in USD. Warns at 80%, stops at 100%.
+* `max_turns` — tool-calling turns one user message may trigger before supervis stops (default: 50, `0` disables)
 * `shell_timeout` — seconds before shell commands time out (default: 15)
 * `claude_timeout` — seconds of silence from Claude Code before the subprocess is killed (default: 1800). This is an idle timeout, not a total run time: a task that keeps producing output runs as long as it needs. The default is long because Claude Code goes quiet for the whole duration of a long-running tool call, such as a test suite or a build.
 * `truncation_limit` — max characters from Claude output sent to DeepSeek (default: 16000)

@@ -205,6 +205,7 @@ def _cmd_config(app, args: str) -> None:
         f"thinking = {session.thinking}",
         f"auto_escalate = {session.auto_escalate}",
         f"max_cost = {session.max_cost}",
+        f"max_turns = {session.max_turns}",
         f"shell_timeout = {session.shell_timeout}",
         f"claude_timeout = {session.claude_timeout}",
         f"truncation_limit = {session.truncation_limit}",

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .session import Session
+
+logger = logging.getLogger(__name__)
+
+KEEP_TAIL = 12
+DEFAULT_THRESHOLD = 40
 
 
 def _clean_for_summarize(messages: list) -> list:
@@ -48,35 +54,40 @@ def _format_messages_for_summary(messages: list) -> str:
 
 
 def _safe_tail_start(messages: list, keep: int) -> int:
-    """Largest index <= len-keep that starts on a user message.
+    """Largest index <= len-keep that is a valid place to resume from.
 
-    The kept tail must begin on a user message: if it started on a tool result
-    whose assistant tool_calls got summarized away, DeepSeek rejects the orphaned
-    tool message ("must be a response to a preceding message with tool_calls").
+    The kept tail must not open on a tool result whose assistant `tool_calls`
+    got summarized away — DeepSeek rejects that with "must be a response to a
+    preceding message with tool_calls". Any user or assistant message is a fine
+    boundary: an assistant that made tool calls carries its results along in the
+    tail behind it.
     """
     start = max(1, len(messages) - keep)
     for i in range(start, 0, -1):
-        if messages[i].get("role") == "user":
+        if messages[i].get("role") in ("user", "assistant"):
             return i
     return 1  # no safe split point — caller skips summarizing this round
 
 
-async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
-    """When history exceeds threshold, summarize older messages to save tokens."""
-    messages = session.messages
-    user_msgs = [m for m in messages if m["role"] != "system"]
-    if len(user_msgs) <= threshold:
-        return
+async def summarize_if_needed(session: Session, threshold: int = DEFAULT_THRESHOLD) -> bool:
+    """Compact older history once it exceeds threshold. Returns True if it did.
 
-    tail_start = _safe_tail_start(messages, keep=12)
+    Safe to call mid-agent-loop: a long single request can run dozens of turns
+    without ever returning to the user, and that history has to be bounded too.
+    """
+    messages = session.messages
+    if len([m for m in messages if m["role"] != "system"]) <= threshold:
+        return False
+
+    tail_start = _safe_tail_start(messages, keep=KEEP_TAIL)
     if tail_start <= 1:
-        return
+        logger.debug("No safe split point for summarization; skipping")
+        return False
 
     to_summarize = _clean_for_summarize(messages[1:tail_start])
 
     from .events import EventType, emit
 
-    emit(EventType.SUMMARY)
     try:
         resp = await session.client.chat.completions.create(
             model=session.base_model,
@@ -97,10 +108,19 @@ async def summarize_if_needed(session: Session, threshold: int = 40) -> None:
             max_tokens=600,
         )
         summary = resp.choices[0].message.content
-        session.messages = [
-            messages[0],
-            {"role": "assistant", "content": f"[Session summary: {summary}]"},
-            *messages[tail_start:],
-        ]
     except Exception:
-        pass  # Keep original messages on failure
+        # Losing a summary is survivable — the conversation just stays long — but
+        # it used to vanish without a trace, which made context bloat unexplainable.
+        logger.exception("Summarization failed; keeping full history")
+        return False
+
+    # The summary goes in as a user turn so the tail can open on either role
+    # without producing two assistant messages back to back.
+    session.messages = [
+        messages[0],
+        {"role": "user", "content": f"[Session summary: {summary}]"},
+        *messages[tail_start:],
+    ]
+    logger.debug("Summarized %d messages down to 1", tail_start - 1)
+    emit(EventType.SUMMARY)
+    return True
