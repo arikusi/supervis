@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from openai import AsyncOpenAI
 
+from .defaults import DEFAULT_BASE_URL
 from .pricing import price_for
 
 # Auto-escalation tuning
@@ -138,7 +139,7 @@ class Session:
     truncation_limit: int = 16000
 
     # Provider endpoint, kept for display only — the client is already built.
-    base_url: str = "https://api.deepseek.com"
+    base_url: str = DEFAULT_BASE_URL
 
     # Tracking
     start_time: float = field(default_factory=time.time)

@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .defaults import DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_PRO_MODEL
 from .pricing import register_pricing
 
 logger = logging.getLogger(__name__)
@@ -22,9 +23,8 @@ _GLOBAL_CONFIG_DIR = Path.home() / ".config" / "supervis"
 _GLOBAL_CONFIG_FILE = _GLOBAL_CONFIG_DIR / "config.toml"
 _OLD_CONFIG_FILE = _GLOBAL_CONFIG_DIR / "config"
 
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-v4-flash"
-DEFAULT_PRO_MODEL = "deepseek-v4-pro"
+# Re-exported so `from .config import DEFAULT_BASE_URL` keeps working.
+__all__ = ["DEFAULT_BASE_URL", "DEFAULT_MODEL", "DEFAULT_PRO_MODEL", "Config", "load_config"]
 
 
 @dataclass
